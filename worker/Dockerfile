@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV NODE_ENV=production
 
-# ----- deps stage -----
+# ----- deps stage: install all deps (incl. dev) for building -----
 FROM base AS deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 build-essential ca-certificates \
@@ -13,31 +13,35 @@ COPY app/package.json ./app/
 COPY worker/package.json ./worker/
 RUN corepack enable && pnpm install --frozen-lockfile=false
 
-# ----- build stage -----
+# ----- build stage: tsc the worker -----
 FROM base AS build
 COPY --from=deps /app /app
 COPY tsconfig.base.json ./
 COPY app ./app
 COPY worker ./worker
+# pnpm exec routes the binary through pnpm so it's on PATH inside
+# the worker's shell. Plain `tsc` would be missing because pnpm's
+# strict PATH doesn't expose the root node_modules/.bin to sub-packages.
 RUN corepack enable \
- && pnpm --filter @socmed/worker build
+ && pnpm --filter @socmed/worker exec tsc
 
-# ----- runtime stage -----
+# ----- runtime stage: prod-only, fully self-contained -----
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# ffmpeg for video probe + poster frames (used by media helpers in M2+)
+# ffmpeg for video probe + poster frames
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/app/node_modules ./app/node_modules
-COPY --from=build /app/worker/dist ./worker/dist
-COPY --from=build /app/worker/package.json ./worker/package.json
-COPY --from=build /app/app ./app
-COPY --from=build /app/tsconfig.base.json ./tsconfig.base.json
+# Copy built artifacts + source tree
+COPY --from=build /app /app
+RUN corepack enable
 
-WORKDIR /app/worker
+# `pnpm deploy` produces a self-contained, deployable dir with all
+# symlinks resolved into a flat node_modules. --prod keeps devDeps out.
+RUN pnpm --filter @socmed/worker deploy --prod /deploy/worker
+
+WORKDIR /deploy/worker
 CMD ["node", "dist/index.js"]
