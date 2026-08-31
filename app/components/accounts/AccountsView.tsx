@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, ExternalLink, KeyRound, AtSign } from "lucide-react";
+import { Trash2, ExternalLink, KeyRound } from "lucide-react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { PLATFORMS, getPlatform, type PlatformId } from "@/lib/platform-meta";
 
@@ -20,10 +20,6 @@ interface Account {
   tokenExpiresAt: number | null;
   createdAt: number;
 }
-
-// Platforms where the user needs to enter something beyond clicking Connect
-const NEEDS_HANDLE: PlatformId[] = ["bluesky"]; // handle + app password
-const NEEDS_INSTANCE: PlatformId[] = ["mastodon", "discord", "bluesky"]; // instance URL / guild / PDS
 
 export function AccountsView() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
@@ -185,8 +181,8 @@ export function AccountsView() {
 
   return (
     <div className="space-y-8">
-      {error && <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      {info && <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-700">{info}</div>}
+      {error && <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+      {info && <div className="rounded-md bg-success/10 px-4 py-3 text-sm text-success">{info}</div>}
 
       <div>
         <h2 className="mb-3 text-lg font-semibold">Connect a platform</h2>
@@ -198,9 +194,9 @@ export function AccountsView() {
             const connected = byPlatform.get(p.id) ?? [];
             return (
               <Card key={p.id} className="overflow-hidden">
-                <CardHeader className={`flex flex-row items-center gap-3 ${p.bg} ${p.text} bg-gradient-to-br`}>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/20 text-lg font-bold backdrop-blur">
-                    {p.short}
+                <CardHeader className={`flex flex-row items-center gap-3 ${p.bg} ${p.text}`}>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/20 text-lg backdrop-blur">
+                    <FontAwesomeIcon icon={p.icon} className="h-5 w-5" />
                   </div>
                   <div>
                     <CardTitle className="text-base">{p.name}</CardTitle>
@@ -326,8 +322,8 @@ export function AccountsView() {
               return (
                 <div key={a.id} className="flex items-center justify-between rounded-md border border-hairline bg-card px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-md text-xs font-bold text-white ${meta?.bg ?? "bg-slate-500"}`}>
-                      {meta?.short ?? "?"}
+                    <div className={`flex h-8 w-8 items-center justify-center rounded-md text-white ${meta?.bg ?? "bg-slate-500"}`}>
+                      {meta ? <FontAwesomeIcon icon={meta.icon} className="h-4 w-4" /> : "?"}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 text-sm font-medium">

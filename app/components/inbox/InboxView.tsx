@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { getPlatform } from "@/lib/platform-meta";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
 interface Mention {
   id: number;
@@ -81,7 +82,7 @@ export function InboxView() {
 
   return (
     <div className="space-y-4">
-      {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
 
       <Tabs defaultValue="mentions">
         <div className="flex items-center justify-between">
@@ -175,8 +176,8 @@ function InboxItem({
   return (
     <div className={`rounded-md border bg-card p-4 ${isNew ? "border-info-border/50 bg-surface-soft" : "border-hairline"}`}>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${meta?.bg ?? "bg-slate-500"}`}>
-          {meta?.short ?? "?"}
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full text-white ${meta?.bg ?? "bg-slate-500"}`}>
+          {meta ? <FontAwesomeIcon icon={meta.icon} className="h-3 w-3" /> : "?"}
         </span>
         <span className="font-medium text-ink">{meta?.name ?? platform}</span>
         <span>· {label}</span>

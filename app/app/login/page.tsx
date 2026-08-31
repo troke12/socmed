@@ -1,10 +1,18 @@
 import { LoginForm } from "@/components/auth/LoginForm";
 
-export default function LoginPage({
+function safeNext(raw: string | undefined): string {
+  if (!raw) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  if (raw.includes("\\") || raw.includes("..")) return "/";
+  return raw;
+}
+
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { next?: string };
+  searchParams: Promise<{ next?: string }>;
 }) {
+  const { next } = await searchParams;
   return (
     <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
       {/* Left: brand panel — DESIGN.md signature surface card */}
@@ -42,7 +50,7 @@ export default function LoginPage({
             <h2 className="text-2xl font-medium tracking-tight">Sign in</h2>
             <p className="mt-1 text-sm text-muted-foreground">Single-user dashboard.</p>
           </div>
-          <LoginForm next={searchParams.next ?? "/"} />
+          <LoginForm next={safeNext(next)} />
         </div>
       </div>
     </div>
