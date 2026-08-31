@@ -22,6 +22,8 @@ COPY tsconfig.base.json ./
 COPY app ./app
 COPY worker ./worker
 # pnpm run properly threads the package's local .bin into PATH.
+# CJS output lands in worker/dist/worker/src/index.js (tsc mirrors src/)
+# and worker/dist/app/lib/** (tsc compiles the imported app sources).
 RUN corepack enable \
  && pnpm --filter @socmed/worker run build
 
@@ -47,11 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && corepack enable \
  && pnpm install --frozen-lockfile=false --prod
 
-# Build artifacts from the build stage
+# Build artifacts: worker CJS output (dist/worker/src + dist/app/lib)
 COPY --from=build /app/worker/dist /app/worker/dist
-# Worker imports from @db/*, @platforms/* which resolve to the app's tree
-COPY --from=build /app/app/lib /app/app/lib
-COPY --from=build /app/app/node_modules /app/app/node_modules
 
 WORKDIR /app/worker
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/worker/src/index.js"]

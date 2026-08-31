@@ -1,24 +1,24 @@
 import { readdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { sqlite } from "./client";
 
-// Resolve the migrations directory relative to this source file so it works
-// regardless of cwd (dev, prod standalone, or tsx).
+// Resolve the migrations directory relative to cwd. Works under:
+// - dev (Next.js, cwd=app)  → ./lib/db/migrations
+// - worker build (cwd=/app/worker) → ../app/lib/db/migrations
+// - standalone (cwd=/app, next start) → ./app/lib/db/migrations
 function findMigrationsDir(): string {
-  // dev: this file is app/lib/db/migrate.ts → migrations is app/lib/db/migrations
-  const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    join(here, "migrations"),                                   // dev (source)
-    resolve(here, "..", "..", "..", "app", "lib", "db", "migrations"), // standalone (built)
-    resolve(process.cwd(), "app", "lib", "db", "migrations"),    // fallback: cwd = workspace root
-    resolve(process.cwd(), "lib", "db", "migrations"),           // fallback: cwd = app
+    resolve(process.cwd(), "lib", "db", "migrations"),          // dev (cwd = app/)
+    resolve(process.cwd(), "app", "lib", "db", "migrations"),   // standalone (cwd = /app)
+    resolve(process.cwd(), "..", "app", "lib", "db", "migrations"), // worker (cwd = /app/worker)
+    resolve(process.cwd(), "worker", "..", "app", "lib", "db", "migrations"),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;
   }
-  return candidates[0]!; // last-resort; will error with a clear path
+  // Last resort: relative to cwd itself
+  return resolve(process.cwd(), "migrations");
 }
 
 const MIGRATIONS_DIR = findMigrationsDir();
