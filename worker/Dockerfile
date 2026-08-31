@@ -3,12 +3,12 @@ FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV NODE_ENV=production
 
-# ----- deps stage: install all deps (incl. dev) for building -----
+# ----- deps stage: all deps (incl. dev) for building -----
 FROM base AS deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 build-essential ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY app/package.json ./app/
 COPY worker/package.json ./worker/
 RUN corepack enable && pnpm install --frozen-lockfile=false
@@ -25,7 +25,7 @@ COPY worker ./worker
 RUN corepack enable \
  && pnpm --filter @socmed/worker exec tsc
 
-# ----- runtime stage: prod-only, fully self-contained -----
+# ----- runtime stage: prod-only, minimal -----
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
@@ -35,13 +35,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# Copy built artifacts + source tree
-COPY --from=build /app /app
-RUN corepack enable
+# Install ONLY production deps (skips devDeps, typescript, eslint, etc.)
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY app/package.json ./app/
+COPY worker/package.json ./worker/
+RUN corepack enable && pnpm install --frozen-lockfile=false --prod --ignore-scripts
 
-# `pnpm deploy` produces a self-contained, deployable dir with all
-# symlinks resolved into a flat node_modules. --prod keeps devDeps out.
-RUN pnpm --filter @socmed/worker deploy --prod /deploy/worker
+# Build artifacts from the build stage
+COPY --from=build /app/worker/dist /app/worker/dist
+# Worker imports from @db/*, @platforms/* which resolve to the app's tree
+COPY --from=build /app/app/lib /app/app/lib
+COPY --from=build /app/app/node_modules /app/app/node_modules
 
-WORKDIR /deploy/worker
+WORKDIR /app/worker
 CMD ["node", "dist/index.js"]
