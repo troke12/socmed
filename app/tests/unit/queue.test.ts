@@ -25,7 +25,11 @@ beforeAll(async () => {
 afterAll(() => {
   if (ORIGINAL_DB !== undefined) process.env.SOCMED_DB_PATH = ORIGINAL_DB;
   if (ORIGINAL_UPLOADS !== undefined) process.env.SOCMED_UPLOADS_DIR = ORIGINAL_UPLOADS;
-  rmSync(dbDir, { recursive: true, force: true });
+  try {
+    rmSync(dbDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // Windows can hold SQLite file locks briefly — best-effort cleanup.
+  }
 });
 
 describe("queue", () => {
@@ -61,7 +65,7 @@ describe("queue", () => {
 
   it("retries failed jobs with exponential backoff", async () => {
     const { enqueue } = await import("@/lib/queue/enqueue");
-    const { claimNext, fail, queueStats } = await import("@/lib/queue/claim");
+    const { claimNext, fail } = await import("@/lib/queue/claim");
     const { sqlite } = await import("@db/client");
 
     const id = enqueue("publish_post", { postId: 99 });
