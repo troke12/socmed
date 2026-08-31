@@ -18,6 +18,11 @@
       "@worker/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "../app/lib/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "../app/lib/db/**/*.ts",
+    "../app/lib/queue/**/*.ts",
+    "../app/lib/platforms/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }
