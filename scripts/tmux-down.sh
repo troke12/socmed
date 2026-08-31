@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for s in socmed-web socmed-worker socmed-caddy socmed-health; do
+for s in socmed-web socmed-worker socmed-caddy socmed-health socmed-backup; do
   tmux kill-session -t "$s" 2>/dev/null || true
 done
 

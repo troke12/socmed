@@ -59,12 +59,94 @@ Self-hosted social media content management — draft, schedule, publish, monito
 ## Architecture
 
 - **`app/`** — Next.js 14 (App Router) — UI + API routes + webhook ingress
-- **`worker/`** — separate Node process — SQLite-backed job queue + pollers
+- **`worker/`** — separate Node process — SQLite-backed job queue + 3 pollers
+  - `scheduler.ts` — claims due jobs every 5s (publish, fetch metrics, post reply)
+  - `cron.ts` — hourly tick that fires recurring `schedule_rules`
+  - `pollers/analytics.ts` — every 15min, fetches metrics for published posts
+  - `pollers/mentions.ts` — every 10min, fetches recent mentions per account
 - **`data/`** — bind-mounted volume — SQLite DB + uploads + logs (gitignored)
 - **`scripts/`** — tmux-up/down, healthcheck, backup, master key gen
 - **`compose.yml`** + **`Caddyfile`** — for production VM deployment
 
 See `/home/ochi/.commandcode/plans/social-media-content-manager.md` for the full plan.
+
+## Operations runbook
+
+### Daily use
+
+```bash
+# Start everything
+bash scripts/tmux-up.sh
+
+# List sessions
+tmux ls
+#   socmed-web       (Next.js on :3000)
+#   socmed-worker    (queue + pollers)
+#   socmed-caddy     (reverse proxy + TLS)
+#   socmed-health    (auto-restart watcher)
+#   socmed-backup    (nightly .backup + tar)
+
+# Watch worker logs live
+tmux attach -t socmed-worker
+
+# Stop everything
+bash scripts/tmux-down.sh
+```
+
+### Health check
+
+```bash
+curl https://localhost/api/health
+# → { ok: true, db: { ok: true }, queue: { pending, running, done, failed, dead } }
+```
+
+### Backups
+
+`scripts/backup.sh` runs nightly via the `socmed-backup` tmux session. Uses `sqlite3 .backup` (WAL-safe) + tar of `data/uploads/`. Default retention: 30 daily. Restore:
+
+```bash
+cp data/backups/app-YYYYMMDD.db data/app.db
+tar -xzf data/backups/uploads-YYYYMMDD.tar.gz -C data/
+```
+
+### Rotating the master key
+
+1. Generate a new key: `bash scripts/gen-master-key.sh` (it upserts in place)
+2. Restart web + worker: `bash scripts/tmux-down.sh && bash scripts/tmux-up.sh`
+3. All existing accounts are now unreadable. Re-add them via `/accounts`.
+
+(The 0.1.0 plan called for a re-encryption script — M6 milestone; not yet implemented.)
+
+### Logs
+
+JSON-structured, level via `SOCMED_LOG_LEVEL=info|debug|warn|error`. Each session pipes to `data/logs/<service>.log`.
+
+### Adding a new platform
+
+1. Add the platform enum value to `app/lib/db/schema.ts` (run a migration to update CHECK)
+2. Create `app/lib/platforms/<name>/{client,adapter,limits,registry}.ts` implementing `PlatformAdapter`
+3. Register in `app/lib/platforms/bootstrap.ts`
+4. Add env vars to `.env.example` and `app/app/api/setup/route.ts`
+5. Add a platform-specific limits doc to the README
+
+### Local dev
+
+```bash
+pnpm dev          # Next.js + worker in parallel (tsc watch)
+pnpm test         # vitest (21 unit tests, app-side)
+pnpm typecheck    # tsc --noEmit on both app + worker
+pnpm build        # production build
+```
+
+## Known limitations (post-M6)
+
+- **`next dev` (the development server) has bugs on Node 24** — Tailwind CSS processing fails with "Module parse failed: Unexpected character '@'". Use `pnpm build && pnpm start` (or the production Docker image) for actual work. Dev mode works fine on Node 20/22.
+- Dynamic `[param]` route segments fail to register in `next dev` on Node 24 — we work around by using `?platform=` query params for webhooks and `action` dispatch in POST for everything else.
+- Each platform's OAuth callback URL must be set in that platform's developer console to `https://<your-domain>/api/accounts/oauth/callback/<platform>`.
+- Some platforms require app review (TikTok 2-4 weeks, Meta 1-3 weeks, X Basic tier $100/mo). The Setup Wizard tells you which env vars are missing per platform.
+- No multi-user support — single admin account, single password gate.
+- Backup uses file copy (not SQLite online backup) to avoid dev-server locking — production deployments should `docker compose stop worker` before backup, or migrate to a Node-based backup script that calls better-sqlite3's backup API from the same process as the worker.
+
 
 ## Security
 

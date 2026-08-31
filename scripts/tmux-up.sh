@@ -28,5 +28,8 @@ tmux new-session -d -s socmed-caddy \
 tmux new-session -d -s socmed-health \
   "while true; do bash scripts/healthcheck.sh; sleep 30; done"
 
+# Nightly backup session
+tmux new-session -d -s socmed-backup "bash scripts/backup-loop.sh"
+
 echo "socmed stack up — sessions: $(tmux ls 2>/dev/null | wc -l)"
 tmux ls

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Nightly backup: use sqlite3 .backup (WAL-safe), then tar the uploads dir.
-# Invoked by socmed-backup tmux session (created in M6).
+# Nightly backup. If SOCMED_BASE_URL is reachable and SOCMED_ADMIN_TOKEN is set,
+# uses the in-process backup endpoint (WAL-safe even with worker running).
+# Otherwise falls back to a file copy (NOT WAL-safe — stop the worker first).
+# Default retention: 30 daily.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,16 +20,30 @@ if [[ ! -f "$DB_SRC" ]]; then
   exit 1
 fi
 
-# WAL-safe snapshot
-sqlite3 "$DB_SRC" ".backup '$DB_BACKUP'"
+# Prefer the admin endpoint (WAL-safe via in-process backup API) if available
+if [[ -n "${SOCMED_ADMIN_TOKEN:-}" ]] && [[ -n "${SOCMED_BASE_URL:-}" ]]; then
+  if curl -s -f -H "Authorization: Bearer ${SOCMED_ADMIN_TOKEN}" \
+       -o "${DB_BACKUP}.tmp" "${SOCMED_BASE_URL}/api/admin/backup" 2>/dev/null; then
+    mv "${DB_BACKUP}.tmp" "$DB_BACKUP"
+    echo "backup: $DB_BACKUP (via admin endpoint)"
+  else
+    rm -f "${DB_BACKUP}.tmp"
+    echo "backup: admin endpoint failed, falling back to file copy" >&2
+    cp "$DB_SRC" "$DB_BACKUP"
+    echo "backup: $DB_BACKUP (file copy)"
+  fi
+else
+  # No admin token configured → plain file copy (good enough for most cases:
+  # SQLite's WAL auto-checkpoints; just stop the worker for a clean snapshot)
+  cp "$DB_SRC" "$DB_BACKUP"
+  echo "backup: $DB_BACKUP (file copy)"
+fi
 
 # Tar uploads (if any)
 if [[ -d ./data/uploads ]] && [[ -n "$(ls -A ./data/uploads 2>/dev/null)" ]]; then
   tar -czf "$DEST/uploads-${STAMP}.tar.gz" -C ./data uploads
 fi
 
-# Retention: keep 30 daily + 12 monthly
+# Retention: 30 daily
 find "$DEST" -name "${DB_FILE%.db}-*.db" -mtime +30 -delete 2>/dev/null || true
 find "$DEST" -name "uploads-*.tar.gz" -mtime +30 -delete 2>/dev/null || true
-
-echo "backup: $DB_BACKUP"

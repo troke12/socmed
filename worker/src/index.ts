@@ -1,6 +1,8 @@
 import { runMigrations } from "./db";
 import { startScheduler, stopScheduler, getCurrentJobId } from "./scheduler";
 import { startCron, stopCron } from "./cron";
+import { startAnalyticsPoller, stopAnalyticsPoller } from "./pollers/analytics";
+import { startMentionsPoller, stopMentionsPoller } from "./pollers/mentions";
 
 const HEALTH_INTERVAL_MS = 30_000;
 
@@ -22,6 +24,8 @@ async function main(): Promise<void> {
 
   startScheduler();
   startCron();
+  startAnalyticsPoller();
+  startMentionsPoller();
 
   const health = setInterval(() => {
     // eslint-disable-next-line no-console
@@ -35,6 +39,8 @@ async function main(): Promise<void> {
     console.log(`[${new Date().toISOString()}] [worker] received ${signal}, shutting down`);
     stopScheduler();
     stopCron();
+    stopAnalyticsPoller();
+    stopMentionsPoller();
     clearInterval(health);
     process.exit(0);
   }
