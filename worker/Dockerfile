@@ -19,11 +19,12 @@ COPY --from=deps /app /app
 COPY tsconfig.base.json ./
 COPY app ./app
 COPY worker ./worker
-# pnpm exec routes the binary through pnpm so it's on PATH inside
-# the worker's shell. Plain `tsc` would be missing because pnpm's
-# strict PATH doesn't expose the root node_modules/.bin to sub-packages.
+# pnpm --filter ... run routes the binary through pnpm with the right
+# PATH, so the worker's own .bin (typescript) is on PATH. Plain `tsc`
+# or `pnpm exec tsc` would be missing because pnpm's strict mode hides
+# the root node_modules/.bin from sub-package shells.
 RUN corepack enable \
- && pnpm --filter @socmed/worker exec tsc
+ && pnpm --filter @socmed/worker run build
 
 # ----- runtime stage: prod-only, minimal -----
 FROM node:22-bookworm-slim AS runtime
