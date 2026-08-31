@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, blob, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, blob, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -126,6 +126,94 @@ export const scheduleRules = sqliteTable("schedule_rules", {
   lastRunAt: integer("last_run_at"),
   createdAt: integer("created_at").notNull(),
 });
+
+export const analyticsSnapshots = sqliteTable(
+  "analytics_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    postId: integer("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+    accountId: integer("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    capturedAt: integer("captured_at").notNull(),
+    impressions: integer("impressions").notNull().default(0),
+    reach: integer("reach").notNull().default(0),
+    likes: integer("likes").notNull().default(0),
+    comments: integer("comments").notNull().default(0),
+    shares: integer("shares").notNull().default(0),
+    saves: integer("saves").notNull().default(0),
+    videoViews: integer("video_views").notNull().default(0),
+    watchTimeMs: integer("watch_time_ms").notNull().default(0),
+    engagementRate: real("engagement_rate").notNull().default(0),
+    rawJson: text("raw_json"),
+  },
+  (t) => ({
+    postTime: index("analytics_post_time").on(t.postId, t.capturedAt),
+    accountTime: index("analytics_account_time").on(t.accountId, t.capturedAt),
+  }),
+);
+
+export const mentions = sqliteTable(
+  "mentions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    accountId: integer("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    platformMentionId: text("platform_mention_id").notNull(),
+    authorHandle: text("author_handle").notNull(),
+    authorName: text("author_name"),
+    text: text("text").notNull(),
+    url: text("url"),
+    mentionedAt: integer("mentioned_at").notNull(),
+    isRead: integer("is_read").notNull().default(0),
+    rawJson: text("raw_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    uq: uniqueIndex("mentions_platform_id_uq").on(t.platform, t.platformMentionId),
+    accountTime: index("mentions_account_time").on(t.accountId, t.mentionedAt),
+  }),
+);
+
+export const comments = sqliteTable(
+  "comments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    postId: integer("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+    accountId: integer("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    platformCommentId: text("platform_comment_id").notNull(),
+    authorHandle: text("author_handle").notNull(),
+    text: text("text").notNull(),
+    postedAt: integer("posted_at").notNull(),
+    isReplied: integer("is_replied").notNull().default(0),
+    replyId: text("reply_id"),
+    rawJson: text("raw_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    uq: uniqueIndex("comments_platform_id_uq").on(t.platform, t.platformCommentId),
+    post: index("comments_post").on(t.postId, t.postedAt),
+  }),
+);
+
+export const engagementActions = sqliteTable(
+  "engagement_actions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind", { enum: ["reply", "like", "reshare"] }).notNull(),
+    targetType: text("target_type", { enum: ["comment", "mention", "post"] }).notNull(),
+    targetId: integer("target_id").notNull(),
+    replyText: text("reply_text"),
+    accountId: integer("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pending", "sent", "failed"] }).notNull().default("pending"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    sentAt: integer("sent_at"),
+  },
+  (t) => ({
+    statusIdx: index("engagement_actions_status").on(t.status, t.createdAt),
+  }),
+);
 
 export const jobs = sqliteTable("jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),

@@ -3,11 +3,25 @@ import "@platforms/bootstrap";
 import { decryptJson, unpack } from "@platforms/crypto";
 import { db, sqlite } from "@db/client";
 import { accounts, posts, postMedia, mediaAssets, type Post, type Account } from "@db/schema";
+import type { AccountWithCreds } from "@platforms/types";
 import { eq, inArray } from "drizzle-orm";
 import { complete, fail } from "./claim";
+import { handleFetchMetrics } from "./analytics";
+import { handlePostComment } from "./engagement";
 
 interface PublishPayload {
   postId: number;
+}
+
+interface FetchMetricsPayload {
+  postId: number;
+}
+
+interface PostCommentPayload {
+  engagementActionId: number;
+  targetType: "comment" | "mention";
+  targetId: number;
+  text: string;
 }
 
 function loadPost(postId: number): { post: Post; account: Account; mediaIds: number[] } | null {
@@ -74,7 +88,7 @@ export async function handlePublishPost(payload: PublishPayload): Promise<void> 
         // Persist the channel ID if user set one on the post (e.g. Discord target channel)
         channelId: undefined,
       },
-      { post, account: { ...account, _creds: creds } },
+      { post, account: { ...account, _creds: creds } as AccountWithCreds },
     );
     sqlite
       .prepare(
@@ -101,6 +115,12 @@ export async function handleJob(kind: string, payload: Record<string, unknown>, 
   switch (kind) {
     case "publish_post":
       await handlePublishPost(payload as unknown as PublishPayload);
+      return;
+    case "fetch_metrics":
+      await handleFetchMetrics(payload as unknown as FetchMetricsPayload);
+      return;
+    case "post_comment":
+      await handlePostComment(payload as unknown as PostCommentPayload);
       return;
     default:
       fail(jobId, `unknown job kind: ${kind}`);
