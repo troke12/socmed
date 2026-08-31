@@ -19,7 +19,7 @@ export interface StoredFile {
   sizeBytes: number;
 }
 
-export async function storeBuffer(buf: Buffer, ext: string, mime: string): Promise<StoredFile> {
+export async function storeBuffer(buf: Buffer, ext: string, _mime: string): Promise<StoredFile> {
   await ensureUploadsDir();
   const sha256 = createHash("sha256").update(buf).digest("hex");
   // Shard by first 2 chars to avoid one huge dir

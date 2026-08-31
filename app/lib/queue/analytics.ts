@@ -1,6 +1,6 @@
 import { getAdapter } from "@platforms/registry";
 import "@platforms/bootstrap";
-import { decryptJson, unpack } from "@platforms/crypto";
+import { decryptAccountCreds } from "@platforms/creds";
 import { db, sqlite } from "@db/client";
 import { accounts, posts } from "@db/schema";
 import { eq } from "drizzle-orm";
@@ -58,9 +58,4 @@ export async function handleFetchMetrics(payload: FetchMetricsPayload): Promise<
     const msg = err instanceof Error ? err.message : String(err);
     fail(postId, `fetch_metrics: ${msg}`);
   }
-}
-
-function decryptAccountCreds(account: typeof accounts.$inferSelect): Record<string, unknown> {
-  const ct = unpack(account.encryptedCreds, account.credsIv, account.credsTag);
-  return decryptJson<Record<string, unknown>>(account.id, ct);
 }

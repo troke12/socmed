@@ -4,17 +4,19 @@ import { db } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { mediaAssets } from "@db/schema";
 import { requireSession } from "@/lib/auth/require";
-import { storeBuffer } from "@/lib/media/storage";
+import { storeBuffer, uploadsDir } from "@/lib/media/storage";
 import { probeImage, probeVideo, generateVideoPoster } from "@/lib/media/probe";
 import { join } from "node:path";
-import { uploadsDir } from "@/lib/media/storage";
 
 export const runtime = "nodejs";
-// Allow up to 50MB per upload
 export const maxDuration = 60;
 
 const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const VIDEO_MIMES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+
+// Hard cap on upload size (10MB images, 100MB videos) to bound disk/CPU use.
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -27,7 +29,7 @@ const EXT_BY_MIME: Record<string, string> = {
 };
 
 export async function POST(req: Request) {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   await runMigrations();
@@ -49,6 +51,10 @@ export async function POST(req: Request) {
       : null;
   if (!kind) {
     return NextResponse.json({ error: `unsupported mime: ${mime}` }, { status: 415 });
+  }
+  const maxBytes = kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES;
+  if (file.size > maxBytes) {
+    return NextResponse.json({ error: `file too large (max ${Math.round(maxBytes / 1024 / 1024)}MB)` }, { status: 413 });
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
@@ -83,11 +89,8 @@ export async function POST(req: Request) {
         // poster is best-effort
       }
     }
-  } catch (e) {
-    return NextResponse.json(
-      { error: `probe failed: ${e instanceof Error ? e.message : String(e)}` },
-      { status: 422 },
-    );
+  } catch {
+    return NextResponse.json({ error: "unable to process media file" }, { status: 422 });
   }
 
   const row = db

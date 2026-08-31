@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, AlertTriangle, KeyRound, ArrowRight } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -12,6 +12,7 @@ interface Check {
   description: string;
   done: boolean;
   hint?: string;
+  guide?: string[];
   required: boolean;
   platforms?: string[];
 }
@@ -36,13 +37,16 @@ export function SetupWizard() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   async function onGenerateMasterKey() {
-    if (!confirm("Generate SOCMED_MASTER_KEY and SOCMED_COOKIE_SECRET in .env? This overwrites existing values.")) return;
+    if (!confirm("Generate keys in .env? This overwrites existing values and also sets a random admin password.")) return;
     setBusy(true);
     try {
       const res = await fetch("/api/setup/generate-keys", { method: "POST" });
       if (!res.ok) { setError("failed to generate keys"); return; }
-      const j = await res.json();
-      alert(`Generated. Restart web + worker for the new keys to take effect.\n\nMaster: ${j.masterKey.slice(0, 8)}…\nCookie: ${j.cookieSecret.slice(0, 8)}…`);
+      const j = (await res.json()) as { adminPassword?: string };
+      alert(
+        `Generated. Restart web + worker for the new keys to take effect.\n\n` +
+        (j.adminPassword ? `New admin password (shown once): ${j.adminPassword}\n` : ""),
+      );
       await refresh();
     } finally {
       setBusy(false);
@@ -58,7 +62,7 @@ export function SetupWizard() {
   return (
     <div className="space-y-8">
       {/* Summary band */}
-      <Card className={status.summary.ready ? "border-success-border/40 bg-green-50/50" : "bg-primary text-white"}>
+      <Card className={status.summary.ready ? "border-success-border/40 bg-success/10" : "bg-primary text-white"}>
         <CardContent className="flex flex-col items-start justify-between gap-4 p-6 sm:flex-row sm:items-center">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -147,7 +151,7 @@ export function SetupWizard() {
 
 function CheckRow({ check, count }: { check: Check; count?: number }) {
   return (
-    <Card className={check.done ? "" : "border-amber-300 bg-signature-cream/30"}>
+    <Card className={check.done ? "" : "border-signature-mustard/40 bg-signature-cream/30"}>
       <CardContent className="flex items-start gap-3 p-4">
         <div
           className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center ${
@@ -164,15 +168,29 @@ function CheckRow({ check, count }: { check: Check; count?: number }) {
             )}
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{check.description}</p>
-          {check.hint && (
-            <a
-              href={check.hint}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 inline-flex items-center gap-1 text-sm text-link hover:underline"
-            >
-              Get credentials <ArrowRight className="h-3.5 w-3.5" />
-            </a>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            {check.hint && (
+              <a
+                href={check.hint}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-link hover:underline"
+              >
+                Open developer portal <ArrowRight className="h-3.5 w-3.5" />
+              </a>
+            )}
+          </div>
+          {check.guide && check.guide.length > 0 && (
+            <details className="mt-2 text-sm">
+              <summary className="cursor-pointer select-none font-medium text-link">
+                How to get these credentials
+              </summary>
+              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-muted-foreground">
+                {check.guide.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            </details>
           )}
         </div>
       </CardContent>

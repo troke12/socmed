@@ -16,7 +16,7 @@ function unauth(e: Error): NextResponse {
 }
 
 export async function GET() {
-  try { requireSession(); } catch (e) { return unauth(e as Error); }
+  try { await requireSession(); } catch (e) { return unauth(e as Error); }
   await runMigrations();
   const rows = db
     .select({
@@ -37,7 +37,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  try { requireSession(); } catch (e) { return unauth(e as Error); }
+  try { await requireSession(); } catch (e) { return unauth(e as Error); }
   await runMigrations();
   const raw = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object") {

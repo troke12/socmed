@@ -8,6 +8,7 @@
 // Media: POST /api/v2/media (4-step: init, upload, update, finalize)
 
 import type { EncryptedCreds } from "../types";
+import { verifyHmacHeader } from "../../security/webhook";
 
 function apiBase(instanceUrl: string): string {
   return `${instanceUrl.replace(/\/$/, "")}/api/v1`;
@@ -21,8 +22,31 @@ export function getMastodonEnv(): { clientId?: string; clientSecret?: string; re
 
 // OAuth app is per-instance; we register the app lazily on beginOAuth.
 // Each instance has its own client_id/client_secret, stored in raw creds.
+//
+// Mastodon's POST /api/v1/apps is NOT deduped server-side (mastodon/mastodon#21991) —
+// every call creates a brand-new Application record with its own fresh client_id/client_secret.
+// beginOAuth and completeOAuth MUST use the same pair for a given instance, because the
+// authorization code Mastodon issues is bound to the client_id that started the flow; if
+// completeOAuth registers a second app and tries to redeem the code against it, the token
+// exchange fails. This in-memory cache makes registration happen once per instance and
+// reuses the result across both steps.
+//
+// Tradeoff: the cache is process-local and in-memory only. That's fine for this app's
+// single-instance deployment, but it will NOT survive a process restart between begin and
+// complete (the cache resets, so the flow would need to be retried) and it is NOT shared
+// across horizontally scaled instances. A DB-backed cache would be needed for either case.
+// Acceptable here since the OAuth window is only a few minutes.
+const appRegistrationCache = new Map<string, { clientId: string; clientSecret: string }>();
+
+function normalizeInstanceUrl(instanceUrl: string): string {
+  return instanceUrl.replace(/\/$/, "").toLowerCase();
+}
 
 export async function mastodonRegisterApp(instanceUrl: string, redirectUri: string): Promise<{ clientId: string; clientSecret: string }> {
+  const cacheKey = normalizeInstanceUrl(instanceUrl);
+  const cached = appRegistrationCache.get(cacheKey);
+  if (cached) return cached;
+
   const body = new URLSearchParams({
     client_name: "socmed",
     redirect_uris: redirectUri,
@@ -35,7 +59,9 @@ export async function mastodonRegisterApp(instanceUrl: string, redirectUri: stri
   });
   if (!res.ok) throw new Error(`Mastodon app register: ${res.status} ${await res.text()}`);
   const j = (await res.json()) as { client_id: string; client_secret: string };
-  return { clientId: j.client_id, clientSecret: j.client_secret };
+  const registered = { clientId: j.client_id, clientSecret: j.client_secret };
+  appRegistrationCache.set(cacheKey, registered);
+  return registered;
 }
 
 export async function mastodonBeginOAuth(instanceUrl: string): Promise<{ authUrl: string; state: string }> {
@@ -184,5 +210,8 @@ export async function mastodonFetchContext(
   return (await res.json()) as { descendants: Array<{ id: string; account: { username: string }; content: string; created_at: string }> };
 }
 
-export function mastodonVerifyWebhookSignature(_raw: string, _headers: Record<string, string>): boolean { return true; }
+export function mastodonVerifyWebhookSignature(raw: string, headers: Record<string, string>): boolean {
+  const secret = process.env.MASTODON_WEBHOOK_SECRET ?? "";
+  return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-mastodon-signature"] ?? headers["signature"]);
+}
 export function mastodonParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }

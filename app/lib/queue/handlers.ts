@@ -1,8 +1,8 @@
 import { getAdapter } from "@platforms/registry";
 import "@platforms/bootstrap";
-import { decryptJson, unpack } from "@platforms/crypto";
+import { decryptAccountCreds } from "@platforms/creds";
 import { db, sqlite } from "@db/client";
-import { accounts, posts, postMedia, mediaAssets, type Post, type Account } from "@db/schema";
+import { accounts, posts, postMedia, mediaAssets, scheduleRules, type Post, type Account } from "@db/schema";
 import type { AccountWithCreds } from "@platforms/types";
 import { eq, inArray } from "drizzle-orm";
 import { complete, fail } from "./claim";
@@ -48,11 +48,6 @@ function loadMediaPaths(mediaIds: number[]): string[] {
   // Resolve to absolute paths via the uploads dir
   const uploadsDir = process.env.SOCMED_UPLOADS_DIR ?? "./data/uploads";
   return rows.map((r) => `${uploadsDir}/${r.path}`);
-}
-
-function decryptAccountCreds(account: Account): Record<string, unknown> {
-  const ct = unpack(account.encryptedCreds, account.credsIv, account.credsTag);
-  return decryptJson<Record<string, unknown>>(account.id, ct);
 }
 
 export async function handlePublishPost(payload: PublishPayload): Promise<void> {
@@ -111,6 +106,64 @@ export async function handlePublishPost(payload: PublishPayload): Promise<void> 
   }
 }
 
+// Creates a new post from a schedule rule's template, then schedules the
+// next run (hourly placeholder — cron calc comes in a later milestone).
+export async function handleScheduleRule(payload: { ruleId: number }): Promise<void> {
+  const { ruleId } = payload;
+  const rule = db.select().from(scheduleRules).where(eq(scheduleRules.id, ruleId)).get();
+  if (!rule) {
+    fail(ruleId, `schedule rule ${ruleId} not found`);
+    return;
+  }
+  const account = db.select().from(accounts).where(eq(accounts.id, rule.accountId)).get();
+  if (!account) {
+    fail(ruleId, `schedule rule ${ruleId}: account not found`);
+    return;
+  }
+  const template = rule.templatePostId
+    ? db.select().from(posts).where(eq(posts.id, rule.templatePostId)).get()
+    : undefined;
+  const now = Math.floor(Date.now() / 1000);
+  const newPost = db
+    .insert(posts)
+    .values({
+      accountId: rule.accountId,
+      kind: template?.kind ?? "text",
+      status: "scheduled",
+      caption: template?.caption ?? "",
+      hashtags: template?.hashtags ?? "",
+      linkUrl: template?.linkUrl ?? null,
+      scheduledFor: now + 60 * 60,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: posts.id })
+    .get();
+  if (!newPost) {
+    fail(ruleId, `schedule rule ${ruleId}: failed to create post`);
+    return;
+  }
+  if (template) {
+    const media = db
+      .select({ mediaId: postMedia.mediaId })
+      .from(postMedia)
+      .where(eq(postMedia.postId, template.id))
+      .all();
+    media.forEach((m, i) => {
+      db.insert(postMedia).values({ postId: newPost.id, mediaId: m.mediaId, position: i }).run();
+    });
+  }
+  // Enqueue the publish for the next hour; bump next_run_at.
+  const next = now + 60 * 60;
+  sqlite.prepare(`UPDATE schedule_rules SET next_run_at = ?, last_run_at = ? WHERE id = ?`).run(next, now, rule.id);
+  sqlite.prepare(`INSERT INTO jobs (kind, payload, run_at, max_attempts, created_at) VALUES ('publish_post', ?, ?, 5, ?)`).run(
+    JSON.stringify({ postId: newPost.id }),
+    next,
+    now,
+  );
+  complete(ruleId);
+}
+
 export async function handleJob(kind: string, payload: Record<string, unknown>, jobId: number): Promise<void> {
   switch (kind) {
     case "publish_post":
@@ -121,6 +174,9 @@ export async function handleJob(kind: string, payload: Record<string, unknown>, 
       return;
     case "post_comment":
       await handlePostComment(payload as unknown as PostCommentPayload);
+      return;
+    case "schedule_rule":
+      await handleScheduleRule(payload as unknown as { ruleId: number });
       return;
     default:
       fail(jobId, `unknown job kind: ${kind}`);

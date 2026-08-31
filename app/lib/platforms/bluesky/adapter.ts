@@ -2,66 +2,90 @@ import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, Pub
 import type { AdapterContext } from "../types";
 import {
   blueskyCreatePost,
+  blueskyCreateSession,
   blueskyDeletePost,
+  blueskyIsVideoPath,
   blueskyListNotifications,
   blueskyParseWebhookEvent,
   blueskyRefreshSession,
   blueskyUploadBlob,
+  blueskyUploadVideo,
   blueskyVerifyWebhookSignature,
   getBlueskyPDS,
+  type BlueskyEmbed,
 } from "./client";
+import { blueskyEnsureSession } from "./session";
 
-function asCreds(rawCreds: Record<string, unknown> | undefined): { accessToken: string; refreshToken?: string; did: string; pds: string } {
-  if (!rawCreds) throw new Error("Bluesky: no creds");
-  const raw = (rawCreds.raw as { did?: string; pdsUrl?: string } | undefined) ?? {};
-  const did = raw.did;
-  if (!did) throw new Error("Bluesky: DID missing from creds (re-add the account)");
-  const pds = getBlueskyPDS(rawCreds);
-  return {
-    accessToken: String(rawCreds.accessToken),
-    refreshToken: rawCreds.refreshToken as string | undefined,
-    did,
-    pds,
-  };
+// Every authenticated call goes through here: the stored app password is not a
+// bearer token, so we need a live accessJwt against the account's real PDS.
+function session(ctx: AdapterContext) {
+  return blueskyEnsureSession(ctx.account);
 }
 
 export const blueskyAdapter: PlatformAdapter = {
   platform: "bluesky",
   async beginOAuth() { throw new Error("Bluesky uses app passwords, not OAuth — add on Accounts page"); },
   async completeOAuth() { throw new Error("Bluesky uses app passwords, not OAuth"); },
+  // Standalone refresh (no AdapterContext, so nothing to persist to here — the
+  // caller stores the returned creds). Falls back to createSession with the
+  // stored app password when there is no usable refreshJwt yet, which is the
+  // case immediately after the account is added.
   async refresh(creds: DecryptedCreds) {
-    const c = asCreds(creds as unknown as Record<string, unknown>);
-    if (!c.refreshToken) throw new Error("Bluesky: no refresh token");
-    const r = await blueskyRefreshSession(c.refreshToken, c.pds);
-    return { accessToken: r.accessJwt, refreshToken: r.refreshJwt } as EncryptedCreds;
+    const raw = (creds.raw as { did?: string; handle?: string; appPassword?: string } | undefined) ?? {};
+    const pds = getBlueskyPDS(creds as unknown as Record<string, unknown>);
+    if (creds.refreshToken && raw.did) {
+      try {
+        const r = await blueskyRefreshSession(creds.refreshToken, pds);
+        return { ...creds, accessToken: r.accessJwt, refreshToken: r.refreshJwt } as EncryptedCreds;
+      } catch {
+        // fall through to a fresh createSession
+      }
+    }
+    const appPassword = raw.appPassword ?? (raw.did ? undefined : creds.accessToken);
+    const identifier = raw.handle ?? raw.did;
+    if (!appPassword || !identifier) {
+      throw new Error("Bluesky: cannot refresh — no app password/identifier in creds (re-add the account)");
+    }
+    const s = await blueskyCreateSession(identifier, appPassword, pds);
+    return {
+      accessToken: s.accessJwt,
+      refreshToken: s.refreshJwt,
+      raw: { ...raw, did: s.did, handle: s.handle, pdsUrl: pds, appPassword },
+    } as EncryptedCreds;
   },
   async publishPost(input: PublishInput, ctx: AdapterContext): Promise<PublishResult> {
-    if (!input.rawCreds) throw new Error("Bluesky: no creds");
-    const c = asCreds(input.rawCreds);
-    let embed: { ref: { $link: string }; mimeType: string; size: number } | undefined;
-    if (input.mediaPaths && input.mediaPaths.length > 0) {
-      embed = await blueskyUploadBlob(c.pds, c.accessToken, input.mediaPaths[0]!);
+    const s = await session(ctx);
+    const paths = input.mediaPaths ?? [];
+    let embed: BlueskyEmbed | undefined;
+    if (paths.length > 0) {
+      // Bluesky posts carry either up to 4 images OR exactly 1 video, never
+      // both — mirrors the app.bsky.embed.images / app.bsky.embed.video split.
+      if (blueskyIsVideoPath(paths[0]!)) {
+        const video = await blueskyUploadVideo(s.pdsUrl, s.accessJwt, s.did, paths[0]!);
+        embed = { kind: "video", video };
+      } else {
+        const images = await Promise.all(
+          paths.slice(0, 4).map((p) => blueskyUploadBlob(s.pdsUrl, s.accessJwt, p)),
+        );
+        embed = { kind: "images", images };
+      }
     }
-    const r = await blueskyCreatePost(c.pds, c.accessToken, c.did, input.caption, { embed });
+    const r = await blueskyCreatePost(s.pdsUrl, s.accessJwt, s.did, input.caption, { embed });
     return { platformPostId: r.uri, platformPostUrl: r.url };
   },
   async deletePost(uri: string, _token: string, ctx: AdapterContext) {
-    // Re-decrypt creds via the account row (the queue handler passes rawCreds on input;
-    // for delete we use ctx.account — the worker will populate it).
-    const rawCreds = (ctx.account as { _creds?: Record<string, unknown> })._creds;
-    const c = asCreds(rawCreds);
+    const s = await session(ctx);
     const rkey = uri.split("/").pop();
     if (!rkey) throw new Error("Bluesky: invalid uri");
-    return blueskyDeletePost(c.pds, c.accessToken, c.did, rkey);
+    return blueskyDeletePost(s.pdsUrl, s.accessJwt, s.did, rkey);
   },
   async fetchPostMetrics(): Promise<AnalyticsSnapshot> {
     return { impressions: 0, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, videoViews: 0, watchTimeMs: 0, engagementRate: 0 };
   },
   async fetchMentions(_token: string, since: number, ctx: AdapterContext): Promise<{ mentions: Mention[]; nextCursor?: string }> {
-    const rawCreds = (ctx.account as { _creds?: Record<string, unknown> })._creds;
-    const c = asCreds(rawCreds);
+    const s = await session(ctx);
     const sinceIso = since > 0 ? new Date(since * 1000).toISOString() : undefined;
-    const notes = await blueskyListNotifications(c.pds, c.accessToken, sinceIso);
+    const notes = await blueskyListNotifications(s.pdsUrl, s.accessJwt, sinceIso);
     return {
       mentions: notes
         .filter((n) => n.reason === "mention" || n.reason === "reply")

@@ -5,11 +5,12 @@ import { requireSession } from "@/lib/auth/require";
 export const runtime = "nodejs";
 
 export async function POST() {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   const masterKey = randomBytes(32).toString("base64");
   const cookieSecret = randomBytes(32).toString("base64");
+  const adminPassword = randomBytes(12).toString("base64url");
   const fs = await import("node:fs");
   const envPath = ".env";
   let env = "";
@@ -22,7 +23,10 @@ export async function POST() {
   };
   upsert("SOCMED_MASTER_KEY", masterKey);
   upsert("SOCMED_COOKIE_SECRET", cookieSecret);
+  // Generate a random admin password so the default "changeme" is never used.
+  upsert("SOCMED_ADMIN_PASSWORD", adminPassword);
 
   fs.writeFileSync(envPath, env, { mode: 0o600 });
-  return NextResponse.json({ ok: true, masterKey, cookieSecret });
+  // Don't echo secrets back to the browser — they live in .env (0600).
+  return NextResponse.json({ ok: true, adminPassword });
 }

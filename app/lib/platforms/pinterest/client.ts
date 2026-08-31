@@ -11,6 +11,7 @@
 // local files. Host media on S3/R2/Cloudflare R2 or use a public CDN.
 
 import type { EncryptedCreds } from "../types";
+import { verifyHmacHeader } from "../../security/webhook";
 
 const API = "https://api.pinterest.com/v5";
 
@@ -52,12 +53,24 @@ export async function pinterestCompleteOAuth(code: string): Promise<EncryptedCre
     body,
   });
   if (!res.ok) throw new Error(`Pinterest token: ${res.status} ${await res.text()}`);
-  const j = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number; scope: string };
+  const j = (await res.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+    refresh_token_expires_in?: number;
+    scope: string;
+  };
+  const raw: Record<string, unknown> = { scope: j.scope };
+  // Pinterest's refresh token expires separately from the access token (~60 days vs ~30 days).
+  // Store an absolute expiry so callers can detect an about-to-expire refresh token and prompt re-auth.
+  if (j.refresh_token_expires_in !== undefined) {
+    raw.refreshTokenExpiresAt = Math.floor(Date.now() / 1000) + j.refresh_token_expires_in;
+  }
   return {
     accessToken: j.access_token,
     refreshToken: j.refresh_token,
     expiresAt: Math.floor(Date.now() / 1000) + j.expires_in,
-    raw: { scope: j.scope },
+    raw,
   };
 }
 
@@ -76,11 +89,23 @@ export async function pinterestRefresh(creds: EncryptedCreds): Promise<Encrypted
     body,
   });
   if (!res.ok) throw new Error(`Pinterest refresh: ${res.status} ${await res.text()}`);
-  const j = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number };
+  const j = (await res.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+    refresh_token_expires_in?: number;
+  };
+  const raw: Record<string, unknown> = { ...creds.raw };
+  // Pinterest's refresh token expires separately from the access token (~60 days vs ~30 days).
+  // Store an absolute expiry so callers can detect an about-to-expire refresh token and prompt re-auth.
+  if (j.refresh_token_expires_in !== undefined) {
+    raw.refreshTokenExpiresAt = Math.floor(Date.now() / 1000) + j.refresh_token_expires_in;
+  }
   return {
     accessToken: j.access_token,
     refreshToken: j.refresh_token ?? creds.refreshToken,
     expiresAt: Math.floor(Date.now() / 1000) + j.expires_in,
+    raw,
   };
 }
 
@@ -142,5 +167,8 @@ export async function pinterestFetchPinAnalytics(
   return { impressions: 0, saves: 0, clicks: 0 };
 }
 
-export function pinterestVerifyWebhookSignature(_raw: string, _headers: Record<string, string>): boolean { return true; }
+export function pinterestVerifyWebhookSignature(raw: string, headers: Record<string, string>): boolean {
+  const secret = process.env.PINTEREST_CLIENT_SECRET ?? "";
+  return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-pinterest-signature"] ?? headers["signature"]);
+}
 export function pinterestParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }

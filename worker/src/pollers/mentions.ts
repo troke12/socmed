@@ -2,24 +2,18 @@
 // the adapter and insert new ones into the mentions table.
 
 import { eq } from "drizzle-orm";
-import { db, sqlite, enqueue } from "../db";
-import { accounts, mentions } from "../../../app/lib/db/schema";
+import { db, sqlite } from "../db";
+import { accounts } from "../../../app/lib/db/schema";
 import { getAdapter } from "../../../app/lib/platforms/registry";
 import "../../../app/lib/platforms/bootstrap";
-import { decryptJson, unpack } from "../../../app/lib/platforms/crypto";
+import { decryptAccountCreds } from "../../../app/lib/platforms/creds";
 
 const POLL_MS = 10 * 60 * 1000; // 10 min
 const LOOKBACK_SEC = 24 * 60 * 60; // 24h
 let handle: ReturnType<typeof setInterval> | null = null;
 
 function log(msg: string): void {
-  // eslint-disable-next-line no-console
   console.log(`[${new Date().toISOString()}] [mentions] ${msg}`);
-}
-
-function decrypt(account: typeof accounts.$inferSelect): Record<string, unknown> {
-  const ct = unpack(account.encryptedCreds, account.credsIv, account.credsTag);
-  return decryptJson<Record<string, unknown>>(account.id, ct);
 }
 
 async function tick(): Promise<void> {
@@ -28,9 +22,9 @@ async function tick(): Promise<void> {
   const active = db.select().from(accounts).where(eq(accounts.status, "active")).all();
   let totalNew = 0;
   for (const acc of active) {
-    const creds = decrypt(acc);
-    const adapter = getAdapter(acc.platform);
     try {
+      const creds = decryptAccountCreds(acc);
+      const adapter = getAdapter(acc.platform);
       const result = await adapter.fetchMentions(
         typeof creds.accessToken === "string" ? creds.accessToken : "",
         since,
@@ -57,7 +51,9 @@ async function tick(): Promise<void> {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      log(`${acc.platform}/${acc.label}: fetch failed — ${msg}`);
+      // Keep going — one bad account (corrupt creds, revoked token) must not
+      // abort the whole pass. Include the error stack for context.
+      log(`${acc.platform}/${acc.label}: fetch failed — ${msg}${e instanceof Error ? `\n${e.stack ?? ""}` : ""}`);
     }
   }
   if (totalNew > 0) log(`inserted ${totalNew} new mentions`);
@@ -78,5 +74,3 @@ export function stopMentionsPoller(): void {
   }
   log("mentions poller stopped");
 }
-
-void enqueue; // silence unused

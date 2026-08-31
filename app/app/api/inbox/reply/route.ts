@@ -16,7 +16,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   await runMigrations();
