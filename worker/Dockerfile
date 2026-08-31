@@ -35,11 +35,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# Install ONLY production deps (skips typescript, eslint, etc.)
+# Install ONLY production deps. We KEEP postinstall scripts so
+# better-sqlite3's native binary gets compiled into the image.
+# (--ignore-scripts would leave better-sqlite3 unusable at runtime.)
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY app/package.json ./app/
 COPY worker/package.json ./worker/
-RUN corepack enable && pnpm install --frozen-lockfile=false --prod --ignore-scripts
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 build-essential ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable \
+ && pnpm install --frozen-lockfile=false --prod
 
 # Build artifacts from the build stage
 COPY --from=build /app/worker/dist /app/worker/dist
