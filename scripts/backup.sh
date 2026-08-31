@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Nightly backup. If SOCMED_BASE_URL is reachable and SOCMED_ADMIN_TOKEN is set,
-# uses the in-process backup endpoint (WAL-safe even with worker running).
-# Otherwise falls back to a file copy (NOT WAL-safe — stop the worker first).
+# Nightly backup. Prefers the in-process /api/admin/backup endpoint
+# (WAL-safe even with the worker running). Falls back to a file copy with a
+# loud warning (NOT WAL-safe — stop the worker first for a clean snapshot).
 # Default retention: 30 daily.
 
 set -euo pipefail
@@ -28,13 +28,14 @@ if [[ -n "${SOCMED_ADMIN_TOKEN:-}" ]] && [[ -n "${SOCMED_BASE_URL:-}" ]]; then
     echo "backup: $DB_BACKUP (via admin endpoint)"
   else
     rm -f "${DB_BACKUP}.tmp"
-    echo "backup: admin endpoint failed, falling back to file copy" >&2
+    echo "backup: admin endpoint failed, falling back to file copy (NOT WAL-safe)" >&2
+    echo "backup: stop the worker for a consistent snapshot: docker compose stop worker" >&2
     cp "$DB_SRC" "$DB_BACKUP"
     echo "backup: $DB_BACKUP (file copy)"
   fi
 else
-  # No admin token configured → plain file copy (good enough for most cases:
-  # SQLite's WAL auto-checkpoints; just stop the worker for a clean snapshot)
+  echo "backup: SOCMED_ADMIN_TOKEN not set — using file copy (NOT WAL-safe)" >&2
+  echo "backup: set SOCMED_ADMIN_TOKEN and run gen-master-key.sh for WAL-safe backups" >&2
   cp "$DB_SRC" "$DB_BACKUP"
   echo "backup: $DB_BACKUP (file copy)"
 fi

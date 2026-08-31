@@ -8,7 +8,7 @@ Self-hosted social media content management — draft, schedule, publish, monito
    ```bash
    git clone https://github.com/troke12/socmed
    cd socmed
-   nvm use                 # node 22
+   nvm use                 # node 24 (see .nvmrc)
    corepack enable
    pnpm install
    ```
@@ -16,21 +16,23 @@ Self-hosted social media content management — draft, schedule, publish, monito
 2. **Configure `.env`**
    ```bash
    cp .env.example .env
-   bash scripts/gen-master-key.sh   # writes SOCMED_MASTER_KEY + SOCMED_COOKIE_SECRET
+   bash scripts/gen-master-key.sh
+   # generates SOCMED_MASTER_KEY, SOCMED_COOKIE_SECRET, a random
+   # SOCMED_ADMIN_PASSWORD, and SOCMED_ADMIN_TOKEN (for backups)
    ```
 
 3. **Start the stack**
    ```bash
    bash scripts/tmux-up.sh
    ```
-   This brings up `socmed-web` (Next.js on :3000), `socmed-worker` (queue + pollers), `socmed-caddy` (reverse proxy + TLS), and `socmed-health` (auto-restart dead sessions) — all via named tmux sessions per the project taste config.
+   This brings up `socmed-web` (Next.js on :3000), `socmed-worker` (queue + pollers), `socmed-caddy` (reverse proxy + TLS), and `socmed-health` (auto-restart dead sessions) — all via named tmux sessions.
 
 4. **Open the Setup Wizard** at <https://localhost/setup>
    - The wizard checks required env vars and tells you which platforms are ready
-   - Click "Generate master keys" if you haven't already
+   - Click "Generate keys" if you haven't already (this also sets a random admin password)
    - Set env vars for the platforms you want, then add an account on `/accounts`
 
-5. **Sign in** at `/login` with `SOCMED_ADMIN_USERNAME` / `SOCMED_ADMIN_PASSWORD` (default: `admin` / `changeme` — change this!)
+5. **Sign in** at `/login` with `SOCMED_ADMIN_USERNAME` / `SOCMED_ADMIN_PASSWORD`. If you used `gen-master-key.sh`, the random password is printed once at generation time.
 
 6. **Connect an account** on `/accounts`:
    - For OAuth platforms (X, LinkedIn, Meta, YouTube, Pinterest, Reddit): click Connect → authorize → callback creates the account
@@ -43,32 +45,30 @@ Self-hosted social media content management — draft, schedule, publish, monito
 
 | Platform | Auth flow | Multi-account | Notes |
 |----------|-----------|---------------|-------|
-| X (Twitter) | OAuth 2.0 PKCE | ✓ | Requires X API Basic ($100/mo) for write |
-| LinkedIn | OAuth 2.0 | ✓ | Needs `w_member_social` scope |
-| Instagram | Meta Graph OAuth | ✓ | Business/Creator account required |
-| Facebook Pages | Meta Graph OAuth | ✓ | One account per page |
-| Threads | Meta Graph OAuth | ✓ | App must be Live for write |
-| TikTok | OAuth 2.0 PKCE | ✓ | Content Posting API requires app review (2-4 weeks) |
-| YouTube | Google OAuth 2.0 | ✓ | Resumable upload, ~6 videos/day quota |
-| Pinterest | OAuth 2.0 | ✓ | Pin images require public URLs |
-| Reddit | OAuth 2.0 | ✓ | Set subreddit in `instanceUrl` column |
-| Mastodon | Per-instance OAuth | ✓ | Federated; set `instanceUrl` to your server |
-| Bluesky | App password (per account) | ✓ | AT Protocol; set PDS via env or per-account |
+| X (Twitter) | OAuth 2.0 PKCE | ✓ | Pay-per-use API pricing, no flat subscription tier; media uploads via the v2 chunked endpoint |
+| LinkedIn | OAuth 2.0 | ✓ | Needs `w_member_social` scope; posts via `/rest/posts` (requires a `LinkedIn-Version` header) |
+| Instagram | Instagram Login OAuth (`graph.instagram.com`) | ✓ | Business/Creator account required; distinct host/flow from Facebook's Meta Graph OAuth below; uses signed media URLs |
+| Facebook Pages | Meta Graph OAuth (`graph.facebook.com`) | ✓ | One account per page |
+| Threads | Threads API (`threads.net` / `graph.threads.net`) | ✓ | Separate host from the main Meta Graph API; app must be Live for write |
+| TikTok | OAuth 2.0 PKCE | ✓ | Content Posting API requires app review (2-4 weeks); unaudited apps publish as private drafts to the creator's inbox, not the public profile |
+| YouTube | Google OAuth 2.0 | ✓ | Resumable (chunked) upload; `videos.insert` has its own 100-uploads/day quota bucket, separate from the shared daily quota |
+| Pinterest | OAuth 2.0 | ✓ | Pin images require public URLs (signed media URL is used) |
+| Reddit | OAuth 2.0 | ✓ | Set subreddit in `instanceUrl` column; create the app as type "web app", not "script" |
+| Mastodon | Per-instance OAuth | ✓ | Federated; set `instanceUrl` to your server (https-only) |
+| Bluesky | App password (per account) | ✓ | AT Protocol; the account's real PDS is auto-resolved from its DID document (not assumed to be bsky.social) |
 | Discord | Bot token (per account) | ✓ | One bot can post to many channels |
 
 ## Architecture
 
-- **`app/`** — Next.js 14 (App Router) — UI + API routes + webhook ingress
+- **`app/`** — Next.js 15 (App Router) — UI + API routes + webhook ingress
 - **`worker/`** — separate Node process — SQLite-backed job queue + 3 pollers
-  - `scheduler.ts` — claims due jobs every 5s (publish, fetch metrics, post reply)
+  - `scheduler.ts` — claims due jobs every 5s (publish, fetch metrics, post reply, schedule rules)
   - `cron.ts` — hourly tick that fires recurring `schedule_rules`
   - `pollers/analytics.ts` — every 15min, fetches metrics for published posts
   - `pollers/mentions.ts` — every 10min, fetches recent mentions per account
 - **`data/`** — bind-mounted volume — SQLite DB + uploads + logs (gitignored)
 - **`scripts/`** — tmux-up/down, healthcheck, backup, master key gen
 - **`compose.yml`** + **`Caddyfile`** — for production VM deployment
-
-See `/home/ochi/.commandcode/plans/social-media-content-manager.md` for the full plan.
 
 ## Operations runbook
 
@@ -102,7 +102,7 @@ curl https://localhost/api/health
 
 ### Backups
 
-`scripts/backup.sh` runs nightly via the `socmed-backup` tmux session. Uses `sqlite3 .backup` (WAL-safe) + tar of `data/uploads/`. Default retention: 30 daily. Restore:
+`scripts/backup.sh` runs nightly via the `socmed-backup` tmux session. When `SOCMED_ADMIN_TOKEN` and `SOCMED_BASE_URL` are set it uses the in-process `/api/admin/backup` endpoint (WAL-safe via better-sqlite3's online backup API — safe even while the worker is running). Otherwise it falls back to a file copy (stop the worker first for a consistent snapshot). Default retention: 30 daily. Restore:
 
 ```bash
 cp data/backups/app-YYYYMMDD.db data/app.db
@@ -117,6 +117,13 @@ tar -xzf data/backups/uploads-YYYYMMDD.tar.gz -C data/
 
 (The 0.1.0 plan called for a re-encryption script — M6 milestone; not yet implemented.)
 
+### Webhooks
+
+Webhook URLs use `?platform=`:
+`https://your.domain/api/webhooks?platform=x`
+
+Signature verification is required. HMAC-based platforms verify against the per-account `webhookSecret` (or `*_WEBHOOK_SECRET` env vars); Meta platforms verify `X-Hub-Signature-256`. Requests without a valid signature are rejected with 401.
+
 ### Logs
 
 JSON-structured, level via `SOCMED_LOG_LEVEL=info|debug|warn|error`. Each session pipes to `data/logs/<service>.log`.
@@ -124,55 +131,45 @@ JSON-structured, level via `SOCMED_LOG_LEVEL=info|debug|warn|error`. Each sessio
 ### Adding a new platform
 
 1. Add the platform enum value to `app/lib/db/schema.ts` (run a migration to update CHECK)
-2. Create `app/lib/platforms/<name>/{client,adapter,limits,registry}.ts` implementing `PlatformAdapter`
+2. Create `app/lib/platforms/<name>/{client,adapter,registry}.ts` implementing `PlatformAdapter`
 3. Register in `app/lib/platforms/bootstrap.ts`
 4. Add env vars to `.env.example` and `app/app/api/setup/route.ts`
-5. Add a platform-specific limits doc to the README
 
 ### Local dev
 
 ```bash
-pnpm dev          # Next.js + worker in parallel (tsc watch)
-pnpm test         # vitest (21 unit tests, app-side)
+pnpm dev          # Next.js + worker in parallel
+pnpm test         # vitest unit tests
 pnpm typecheck    # tsc --noEmit on both app + worker
+pnpm lint         # ESLint (flat config) on both app + worker
 pnpm build        # production build
 ```
-
-## Known limitations (post-M6)
-
-- **`next dev` (the development server) has bugs on Node 24** — Tailwind CSS processing fails with "Module parse failed: Unexpected character '@'". Use `pnpm build && pnpm start` (or the production Docker image) for actual work. Dev mode works fine on Node 20/22.
-- Dynamic `[param]` route segments fail to register in `next dev` on Node 24 — we work around by using `?platform=` query params for webhooks and `action` dispatch in POST for everything else.
-- Each platform's OAuth callback URL must be set in that platform's developer console to `https://<your-domain>/api/accounts/oauth/callback/<platform>`.
-- Some platforms require app review (TikTok 2-4 weeks, Meta 1-3 weeks, X Basic tier $100/mo). The Setup Wizard tells you which env vars are missing per platform.
-- No multi-user support — single admin account, single password gate.
-- Backup uses file copy (not SQLite online backup) to avoid dev-server locking — production deployments should `docker compose stop worker` before backup, or migrate to a Node-based backup script that calls better-sqlite3's backup API from the same process as the worker.
-
 
 ## Security
 
 Read `SECURITY.md` before deploying. Highlights:
 - All platform API tokens encrypted at rest (AES-256-GCM, per-account key via HKDF)
-- `.env` is gitignored — `bash scripts/gen-master-key.sh` writes `SOCMED_MASTER_KEY` and `SOCMED_COOKIE_SECRET` with mode 0600
+- `.env` is gitignored — `bash scripts/gen-master-key.sh` writes secrets with mode 0600
 - No real credentials in this repo — only placeholders in `.env.example`
-- Bcrypt password hashing, HMAC-SHA256 signed session cookies, WAL-mode SQLite
+- Bcrypt password hashing (cost 12), HMAC-SHA256 signed session cookies, WAL-mode SQLite
+- Login rate limiting (5 attempts / 15 min per IP)
+- Webhook signature verification on all platforms
+- OAuth `state` cookie is `Secure` + validated; `next` redirects are allowlisted
+- Containers run as non-root with dropped capabilities and resource limits
 
 ## Process model (tmux as supervisor)
 
-`scripts/tmux-up.sh` creates four named tmux sessions: `socmed-web`, `socmed-worker`, `socmed-caddy`, `socmed-health` (auto-restart watcher). To inspect:
+`scripts/tmux-up.sh` creates five named tmux sessions: `socmed-web`, `socmed-worker`, `socmed-caddy`, `socmed-health` (auto-restart watcher) and `socmed-backup` (nightly backups). To inspect:
 ```bash
 tmux ls
 tmux attach -t socmed-worker
 ```
 
-## Backup
+## Known limitations (post-M6)
 
-`scripts/backup.sh` uses `sqlite3 .backup` (WAL-safe) + tar of uploads. Default retention: 30 daily + 12 monthly. Set up a cron job or run it manually.
-
-## Development
-
-```bash
-pnpm dev          # Next.js + worker in parallel
-pnpm test         # vitest (unit)
-pnpm typecheck    # tsc --noEmit
-pnpm build        # production build
-```
+- The `schedule_rules` cron currently schedules posts on an hourly cadence; real cron-expression evaluation is a later milestone. There's also no UI yet to create a schedule rule in the first place ([#2](https://github.com/troke12/socmed/issues/2)).
+- Some platforms require app review (TikTok 2-4 weeks, Meta 1-3 weeks) or paid API access (X). The Setup Wizard tells you which env vars are missing per platform.
+- Access tokens are not automatically refreshed before they expire — every platform adapter has a working `refresh()`, but nothing schedules it yet ([#1](https://github.com/troke12/socmed/issues/1)). A revoked/expired account just fails on next publish; re-add it on `/accounts`.
+- No multi-user support — single admin account, single password gate ([#7](https://github.com/troke12/socmed/issues/7)).
+- Compose can only create new posts — no way to edit an existing draft/scheduled post, and no cross-posting to multiple accounts in one action ([#3](https://github.com/troke12/socmed/issues/3), [#4](https://github.com/troke12/socmed/issues/4)).
+- `next build` on Windows with Node 25+ hits a Next.js prerender bug (`/_global-error`). Use Node 22/24 (see `.nvmrc`) or the Docker images (Node 24, Linux) — the Docker path is the supported production deployment.
