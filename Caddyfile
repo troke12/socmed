@@ -1,8 +1,7 @@
 {
-    # On-demand TLS via Cloudflare DNS challenge (no public :80 needed).
-    # If CLOUDFLARE_API_TOKEN is unset, fall back to HTTP-01 which requires :80.
+    # Caddy manages TLS automatically (Let's Encrypt via HTTP-01 or
+    # DNS challenge if CLOUDFLARE_API_TOKEN is set).
     email {$LETSENCRYPT_EMAIL:admin@example.com}
-    auto_https disable_redirects
 }
 
 {$SOCMED_DOMAIN:localhost} {
