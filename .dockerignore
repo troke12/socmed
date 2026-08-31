@@ -1,0 +1,59 @@
+# Exclude everything we don't need to send to the Docker build context.
+# Build context size is the #1 cause of slow / failing Docker builds on Windows.
+
+# Dependencies (installed inside the image via pnpm install)
+node_modules
+**/node_modules
+
+# Build output
+.next
+**/.next
+dist
+**/dist
+out
+**/out
+
+# Tests
+coverage
+**/coverage
+playwright-report
+test-results
+**/tests
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Runtime data (bind-mounted in container, not in image)
+data/
+**/data
+logs/
+**/logs
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+**/.env.local
+**/.env.*.local
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode
+**/.DS_Store
+
+# VCS
+.git
+.gitignore
+**/.git
+**/.gitignore
+
+# Tooling metadata (not source)
+.commandcode/
+
+# Documentation that's redundant inside the image
+README.md
+SECURITY.md
+*.md
