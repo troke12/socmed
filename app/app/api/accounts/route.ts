@@ -61,14 +61,18 @@ export async function POST(req: Request) {
   }
   const { platform, label, handle, displayName, creds, scopes, tokenExpiresAt, instanceUrl } = parsed.data;
 
+  // Auto-generate label if omitted: e.g. "X 1", "Discord 2"
+  const finalLabel = label ?? await nextLabel(platform);
+  const finalHandle = handle ?? "";
+
   const dup = db
     .select({ id: accounts.id })
     .from(accounts)
-    .where(and(eq(accounts.platform, platform), eq(accounts.label, label)))
+    .where(and(eq(accounts.platform, platform), eq(accounts.label, finalLabel)))
     .get();
   if (dup) {
     return NextResponse.json(
-      { error: `an account with label "${label}" already exists for ${platform}` },
+      { error: `an account with label "${finalLabel}" already exists for ${platform}` },
       { status: 409 },
     );
   }
@@ -78,8 +82,8 @@ export async function POST(req: Request) {
     .insert(accounts)
     .values({
       platform,
-      label,
-      handle: handle ?? "",
+      label: finalLabel,
+      handle: finalHandle,
       displayName: displayName ?? null,
       instanceUrl: instanceUrl ?? null,
       encryptedCreds: Buffer.alloc(0),
@@ -109,5 +113,16 @@ export async function POST(req: Request) {
     .where(eq(accounts.id, temp.id))
     .run();
 
-  return NextResponse.json({ id: temp.id, platform, label }, { status: 201 });
+  return NextResponse.json({ id: temp.id, platform, label: finalLabel }, { status: 201 });
+}
+
+// Generate "X 1", "X 2", ... per platform so users can skip naming accounts.
+async function nextLabel(platform: "tiktok" | "linkedin" | "instagram" | "x" | "facebook" | "threads" | "youtube" | "pinterest" | "reddit" | "mastodon" | "bluesky" | "discord"): Promise<string> {
+  const row = db
+    .select({ n: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.platform, platform))
+    .all();
+  const display = platform.charAt(0).toUpperCase() + platform.slice(1);
+  return `${display} ${row.length + 1}`;
 }
