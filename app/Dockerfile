@@ -19,6 +19,11 @@ COPY --from=deps /app /app
 COPY tsconfig.base.json ./
 COPY app ./app
 COPY worker ./worker
+# next build runs "collecting page data" in parallel workers that all
+# import DB-backed route modules. Point the build at a throwaway DB so
+# it doesn't touch the real one (and so WAL-mode contention can't fail
+# the build).
+ENV SOCMED_DB_PATH=/tmp/build.db SOCMED_UPLOADS_DIR=/tmp/build-uploads
 RUN corepack enable \
  && pnpm --filter @socmed/app run build
 
@@ -37,4 +42,6 @@ COPY --from=build /app/app/.next/standalone ./
 COPY --from=build /app/app/.next/static ./app/.next/static
 
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Next.js standalone output nests under app/ because the project dir
+# is app/ inside the build context.
+CMD ["node", "app/server.js"]
