@@ -51,6 +51,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build artifacts: worker CJS output (dist/worker/src + dist/app/lib)
 COPY --from=build /app/worker/dist /app/worker/dist
+# SQL migration files (tsc doesn't copy .sql) — worker applies them at boot
+COPY --from=build /app/app/lib/db/migrations /app/worker/dist/app/lib/db/migrations
 
 WORKDIR /app/worker
 CMD ["node", "dist/worker/src/index.js"]
