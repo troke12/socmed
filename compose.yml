@@ -12,6 +12,10 @@ services:
       # Next.js standalone binds to HOSTNAME by default (the container
       # hostname), which breaks localhost healthchecks. Force 0.0.0.0.
       HOSTNAME: 0.0.0.0
+    ports:
+      # Default access: http://localhost:8080 (no TLS for local dev).
+      # In production behind Caddy you can drop this mapping.
+      - "8080:3000"
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -19,6 +23,15 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 256
 
   worker:
     build:
@@ -34,9 +47,21 @@ services:
       - ./data:/app/data
     depends_on:
       - web
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 256
 
+  # TLS reverse proxy — opt-in. Run with: docker compose --profile tls up
+  # or set COMPOSE_PROFILES=tls. For local dev, http://localhost:8080 is enough.
   caddy:
     image: caddy:2
+    profiles: ["tls"]
     restart: unless-stopped
     ports:
       - "80:80"
@@ -48,6 +73,17 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 128
 
 volumes:
   caddy_data:

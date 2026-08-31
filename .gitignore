@@ -38,3 +38,6 @@ test-results
 
 # Command Code agent metadata
 .commandcode/
+
+# oh-my-claudecode agent runtime state
+.omc/
