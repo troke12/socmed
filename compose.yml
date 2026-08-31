@@ -9,10 +9,13 @@ services:
     environment:
       SOCMED_DB_PATH: /app/data/app.db
       SOCMED_UPLOADS_DIR: /app/data/uploads
+      # Next.js standalone binds to HOSTNAME by default (the container
+      # hostname), which breaks localhost healthchecks. Force 0.0.0.0.
+      HOSTNAME: 0.0.0.0
     volumes:
       - ./data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

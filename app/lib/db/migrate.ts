@@ -13,6 +13,7 @@ function findMigrationsDir(): string {
     resolve(process.cwd(), "app", "lib", "db", "migrations"),   // standalone (cwd = /app)
     resolve(process.cwd(), "..", "app", "lib", "db", "migrations"), // worker (cwd = /app/worker)
     resolve(process.cwd(), "worker", "..", "app", "lib", "db", "migrations"),
+    resolve(process.cwd(), "dist", "app", "lib", "db", "migrations"), // worker CJS build (cwd = /app/worker)
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;

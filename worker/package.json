@@ -5,7 +5,7 @@
   "main": "dist/worker/src/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "start": "node dist/worker/src/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.9.0",
+    "tsc-alias": "^1.8.10",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
