@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
+# Base image: don't set NODE_ENV=production globally; each stage sets it
+# as needed. Setting it in the base breaks devDep installation in deps
+# and build stages.
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
-ENV NODE_ENV=production
 
 # ----- deps stage: all deps (incl. dev) for building -----
 FROM base AS deps
@@ -13,16 +15,13 @@ COPY app/package.json ./app/
 COPY worker/package.json ./worker/
 RUN corepack enable && pnpm install --frozen-lockfile=false
 
-# ----- build stage: tsc the worker -----
+# ----- build stage: tsc the worker (needs typescript from devDeps) -----
 FROM base AS build
 COPY --from=deps /app /app
 COPY tsconfig.base.json ./
 COPY app ./app
 COPY worker ./worker
-# pnpm --filter ... run routes the binary through pnpm with the right
-# PATH, so the worker's own .bin (typescript) is on PATH. Plain `tsc`
-# or `pnpm exec tsc` would be missing because pnpm's strict mode hides
-# the root node_modules/.bin from sub-package shells.
+# pnpm run properly threads the package's local .bin into PATH.
 RUN corepack enable \
  && pnpm --filter @socmed/worker run build
 
@@ -36,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# Install ONLY production deps (skips devDeps, typescript, eslint, etc.)
+# Install ONLY production deps (skips typescript, eslint, etc.)
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY app/package.json ./app/
 COPY worker/package.json ./worker/
