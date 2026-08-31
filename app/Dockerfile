@@ -3,28 +3,26 @@ FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# ----- deps stage: all deps for building -----
+# ----- deps stage: all deps (incl. dev) for building -----
 FROM base AS deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 build-essential ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY app/package.json ./app/
 COPY worker/package.json ./worker/
 RUN corepack enable && pnpm install --frozen-lockfile=false
 
-# ----- build stage -----
+# ----- build stage: next build (needs devDeps) -----
 FROM base AS build
 COPY --from=deps /app /app
 COPY tsconfig.base.json ./
 COPY app ./app
 COPY worker ./worker
-# pnpm exec routes the binary through pnpm so it's on PATH inside
-# the worker's shell.
 RUN corepack enable \
- && pnpm --filter @socmed/app build
+ && pnpm --filter @socmed/app run build
 
-# ----- runtime stage -----
+# ----- runtime stage: prod-only -----
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
