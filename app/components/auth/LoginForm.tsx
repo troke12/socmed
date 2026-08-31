@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function LoginForm({ next }: { next: string }) {
   const router = useRouter();
@@ -35,36 +38,30 @@ export function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-3">
-      <div className="space-y-1">
-        <label className="text-sm font-medium" htmlFor="username">Username</label>
-        <input
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="username">Username</Label>
+        <Input
           id="username"
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoComplete="username"
         />
       </div>
-      <div className="space-y-1">
-        <label className="text-sm font-medium" htmlFor="password">Password</label>
-        <input
+      <div className="space-y-2">
+        <Label htmlFor="password">Password</Label>
+        <Input
           id="password"
           type="password"
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
         />
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <button
-        type="submit"
-        disabled={busy}
-        className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-      >
+      <Button type="submit" disabled={busy} className="w-full">
         {busy ? "Signing in..." : "Sign in"}
-      </button>
+      </Button>
     </form>
   );
 }

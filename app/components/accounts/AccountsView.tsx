@@ -1,94 +1,110 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Plus, Trash2, ExternalLink } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { PLATFORMS, getPlatform, type PlatformId } from "@/lib/platform-meta";
 
 interface Account {
   id: number;
-  platform: "tiktok" | "linkedin" | "instagram" | "x";
+  platform: PlatformId;
+  label: string;
   handle: string;
   displayName: string | null;
+  instanceUrl: string | null;
   status: "active" | "revoked" | "expired";
   tokenExpiresAt: number | null;
   createdAt: number;
 }
 
-const PLATFORMS: Account["platform"][] = ["x", "linkedin", "instagram", "tiktok"];
-
 export function AccountsView() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Manual token add (for testing / sandbox tokens)
-  const [platform, setPlatform] = useState<Account["platform"]>("x");
-  const [handle, setHandle] = useState("");
-  const [accessToken, setAccessToken] = useState("");
+  // OAuth connect form state per platform
+  const [oauthHandle, setOauthHandle] = useState<Record<string, string>>({});
 
-  // OAuth start
-  const [oauthPlatform, setOauthPlatform] = useState<Account["platform"]>("x");
-  const [oauthHandle, setOauthHandle] = useState("");
+  // Manual token add form
+  const [manual, setManual] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     setError(null);
     const res = await fetch("/api/accounts");
-    if (!res.ok) {
-      setError("failed to load accounts");
-      return;
-    }
+    if (!res.ok) { setError("failed to load accounts"); return; }
     const j = (await res.json()) as { accounts: Account[] };
     setAccounts(j.accounts);
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
-  async function onAdd(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    setInfo(null);
+  async function onOauth(platform: PlatformId) {
+    const handle = (oauthHandle[platform] ?? "").trim();
+    if (!handle) { setError(`Enter a handle for ${platform}`); return; }
+    setBusyId(`oauth-${platform}`);
+    setError(null); setInfo(null);
     try {
+      const res = await fetch("/api/accounts/oauth/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ platform, handle }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(j.error ?? `OAuth start failed — set the ${platform} env vars in .env first (check /setup)`);
+        return;
+      }
+      const j = (await res.json()) as { authUrl: string };
+      window.location.href = j.authUrl;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onManualAdd(platform: PlatformId) {
+    const label = (manual[`label-${platform}`] ?? "").trim();
+    const token = (manual[`token-${platform}`] ?? "").trim();
+    if (!label || !token) { setError("Enter a label and token"); return; }
+    setBusyId(`manual-${platform}`);
+    setError(null); setInfo(null);
+    try {
+      const body: Record<string, unknown> = {
+        platform,
+        label,
+        creds: { accessToken: token },
+      };
+      const handle = (manual[`handle-${platform}`] ?? "").trim();
+      if (handle) body.handle = handle;
+      if (platform === "discord") {
+        const guild = (manual[`guild-${platform}`] ?? "").trim();
+        if (guild) {
+          body.instanceUrl = guild;
+          body.creds = {
+            accessToken: token,
+            raw: { channelIds: guild.split(",").map((s) => s.trim()).filter(Boolean) },
+          };
+        }
+      }
       const res = await fetch("/api/accounts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ platform, handle, creds: { accessToken } }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         setError(j.error ?? "failed");
         return;
       }
-      setHandle("");
-      setAccessToken("");
+      setManual((m) => ({ ...m, [`label-${platform}`]: "", [`token-${platform}`]: "" }));
       setInfo("Account added");
       await refresh();
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onOauth(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const res = await fetch("/api/accounts/oauth/start", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ platform: oauthPlatform, handle: oauthHandle }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(j.error ?? `OAuth start failed (env vars may be missing: ${envHintFor(oauthPlatform)})`);
-        return;
-      }
-      const j = (await res.json()) as { authUrl: string };
-      window.location.href = j.authUrl;
-    } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
@@ -99,144 +115,158 @@ export function AccountsView() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "delete", id }),
     });
-    if (!res.ok) {
-      setError("delete failed");
-      return;
-    }
+    if (!res.ok) { setError("delete failed"); return; }
     await refresh();
+  }
+
+  if (accounts === null) return <p className="text-sm text-muted-foreground">Loading...</p>;
+
+  const byPlatform = new Map<PlatformId, Account[]>();
+  for (const a of accounts) {
+    const list = byPlatform.get(a.platform) ?? [];
+    list.push(a);
+    byPlatform.set(a.platform, list);
   }
 
   return (
     <div className="space-y-8">
-      <section>
-        <h2 className="mb-3 text-lg font-medium">Connect with OAuth</h2>
-        <form onSubmit={onOauth} className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="oauth-p">Platform</label>
-            <select
-              id="oauth-p"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={oauthPlatform}
-              onChange={(e) => setOauthPlatform(e.target.value as Account["platform"])}
-            >
-              {PLATFORMS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="oauth-h">Handle</label>
-            <input
-              id="oauth-h"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={oauthHandle}
-              onChange={(e) => setOauthHandle(e.target.value)}
-              placeholder="@yourbrand"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={busy || !oauthHandle}
-            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-          >
-            {busy ? "Starting..." : "Connect"}
-          </button>
-          <p className="w-full text-xs text-muted-foreground">
-            Requires {envHintFor(oauthPlatform)} in <code className="rounded bg-muted px-1">.env</code>.
-            See the Setup Wizard for details.
-          </p>
-        </form>
-      </section>
+      {error && <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {info && <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-700">{info}</div>}
 
-      <section>
-        <h2 className="mb-3 text-lg font-medium">Add manually (paste token)</h2>
-        <form onSubmit={onAdd} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="p">Platform</label>
-            <select
-              id="p"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={platform}
-              onChange={(e) => setPlatform(e.target.value as Account["platform"])}
-            >
-              {PLATFORMS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="h">Handle</label>
-            <input
-              id="h"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="@yourbrand"
-            />
-          </div>
-          <div className="space-y-1 sm:col-span-2">
-            <label className="text-sm font-medium" htmlFor="t">Access token</label>
-            <input
-              id="t"
-              type="password"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              placeholder="paste a token"
-            />
-          </div>
-          <div className="sm:col-span-4 flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={busy || !handle || !accessToken}
-              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              {busy ? "Saving..." : "Add account"}
-            </button>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {info && <p className="text-sm text-green-600">{info}</p>}
-          </div>
-        </form>
-      </section>
+      {/* Platform grid */}
+      <div>
+        <h2 className="mb-3 text-lg font-semibold">Connect a platform</h2>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {PLATFORMS.map((p) => {
+            const connected = byPlatform.get(p.id) ?? [];
+            const busy = busyId === `oauth-${p.id}` || busyId === `manual-${p.id}`;
+            return (
+              <Card key={p.id} className="overflow-hidden">
+                <CardHeader className={`flex flex-row items-center gap-3 ${p.bg} ${p.text} bg-gradient-to-br`}>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/20 text-lg font-bold backdrop-blur">
+                    {p.short}
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">{p.name}</CardTitle>
+                    <CardDescription className={`text-xs ${p.text} opacity-80`}>
+                      {p.auth === "oauth" ? "OAuth 2.0" : p.auth === "token" ? "Token / bot" : "OAuth or token"}
+                    </CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-4">
+                  {connected.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {connected.map((a) => (
+                        <Badge key={a.id} variant="secondary" className="text-xs">
+                          {a.label}
+                          {a.status !== "active" && ` · ${a.status}`}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
 
-      <section>
-        <h2 className="mb-3 text-lg font-medium">Connected</h2>
-        {accounts === null && <p className="text-sm text-muted-foreground">Loading...</p>}
-        {accounts && accounts.length === 0 && (
-          <p className="text-sm text-muted-foreground">No accounts yet.</p>
-        )}
-        <ul className="space-y-2">
-          {accounts?.map((a) => (
-            <li
-              key={a.id}
-              className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-sm"
-            >
-              <div>
-                <div className="font-medium">{a.platform} · {a.handle}</div>
-                <div className="text-xs text-muted-foreground">
-                  {a.displayName ?? "—"} · {a.status}
-                  {a.tokenExpiresAt ? ` · expires ${new Date(a.tokenExpiresAt * 1000).toLocaleDateString()}` : ""}
+                  {p.auth !== "token" && (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="@handle"
+                        className="h-9 text-sm"
+                        value={oauthHandle[p.id] ?? ""}
+                        onChange={(e) => setOauthHandle((m) => ({ ...m, [p.id]: e.target.value }))}
+                      />
+                      <Button
+                        size="sm"
+                        className="shrink-0"
+                        disabled={busy}
+                        onClick={() => void onOauth(p.id)}
+                      >
+                        <ExternalLink className="h-4 w-4" /> Connect
+                      </Button>
+                    </div>
+                  )}
+
+                  {p.auth !== "oauth" && (
+                    <div className="space-y-2 rounded-md bg-muted/50 p-2">
+                      <p className="text-xs text-muted-foreground">{p.description}</p>
+                      <Input
+                        placeholder="Label (e.g. Marketing Bot)"
+                        className="h-9 text-sm"
+                        value={manual[`label-${p.id}`] ?? ""}
+                        onChange={(e) => setManual((m) => ({ ...m, [`label-${p.id}`]: e.target.value }))}
+                      />
+                      <Input
+                        placeholder={p.id === "discord" ? "Bot token" : "App password / token"}
+                        type="password"
+                        className="h-9 text-sm"
+                        value={manual[`token-${p.id}`] ?? ""}
+                        onChange={(e) => setManual((m) => ({ ...m, [`token-${p.id}`]: e.target.value }))}
+                      />
+                      {p.id === "discord" && (
+                        <Input
+                          placeholder="Channel IDs (comma separated)"
+                          className="h-9 text-sm"
+                          value={manual[`guild-${p.id}`] ?? ""}
+                          onChange={(e) => setManual((m) => ({ ...m, [`guild-${p.id}`]: e.target.value }))}
+                        />
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() => void onManualAdd(p.id)}
+                      >
+                        <Plus className="h-4 w-4" /> Add
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* All accounts */}
+      <div>
+        <h2 className="mb-3 text-lg font-semibold">Connected accounts ({accounts.length})</h2>
+        {accounts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No accounts yet — pick a platform above.</p>
+        ) : (
+          <div className="space-y-2">
+            {accounts.map((a) => {
+              const meta = getPlatform(a.platform);
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-lg border bg-card px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-8 w-8 items-center justify-center rounded-md text-xs font-bold text-white ${meta?.bg ?? "bg-slate-500"}`}>
+                      {meta?.short ?? "?"}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        {meta?.name ?? a.platform} · {a.label}
+                        <Badge variant={a.status === "active" ? "success" : "destructive"} className="text-[10px]">
+                          {a.status}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {a.handle || "—"}
+                        {a.instanceUrl ? ` · ${a.instanceUrl}` : ""}
+                        {a.tokenExpiresAt ? ` · expires ${new Date(a.tokenExpiresAt * 1000).toLocaleDateString()}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                  <Button size="icon" variant="ghost" onClick={() => void onDelete(a.id)} className="text-muted-foreground hover:text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-              </div>
-              <button
-                onClick={() => onDelete(a.id)}
-                className="text-xs text-destructive hover:underline"
-              >
-                delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
-}
-
-function envHintFor(p: Account["platform"]): string {
-  switch (p) {
-    case "x": return "X_CLIENT_ID + X_CLIENT_SECRET";
-    case "linkedin": return "LINKEDIN_CLIENT_ID + LINKEDIN_CLIENT_SECRET";
-    case "instagram": return "INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET";
-    case "tiktok": return "TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET";
-  }
 }
