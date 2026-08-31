@@ -4,44 +4,85 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* ── DESIGN.md tokens (Airtable-style system) ───────────── */
+    /* colors */
+    --primary: 222 21% 12%;            /* #181d26 — ink / near-black */
+    --primary-active: 216 30% 7%;      /* #0d1218 */
+    --canvas: 0 0% 100%;               /* #ffffff */
+    --ink: 222 21% 12%;                /* #181d26 */
+    --body: 218 10% 24%;               /* #333840 */
+    --muted: 220 6% 28%;               /* #41454d */
+    --hairline: 0 0% 87%;              /* #dddddd */
+    --border-strong: 220 8% 60%;       /* #9297a0 */
+    --surface-soft: 210 40% 98%;       /* #f8fafc */
+    --surface-strong: 210 7% 89%;      /* #e0e2e6 */
+    --surface-dark: 222 21% 12%;       /* #181d26 */
+    --surface-dark-elevated: 220 13% 13%; /* #1d1f25 */
+
+    /* semantic */
+    --link: 216 76% 45%;               /* #1b61c9 */
+    --link-active: 219 58% 25%;        /* #1a3866 */
+    --info: 222 65% 41%;               /* #254fad */
+    --info-border: 216 100% 64%;       /* #458fff */
+    --success: 120 100% 20%;           /* #006400 */
+    --success-border: 135 53% 48%;     /* #39bf45 */
+    --destructive: 16 100% 33%;        /* #aa2d00 — signature coral */
+    --destructive-foreground: 0 0% 100%;
+
+    /* signature surfaces (brand voltage) */
+    --signature-coral: 15 100% 33%;    /* #aa2d00 */
+    --signature-forest: 135 66% 11%;   /* #0a2e0e */
+    --signature-cream: 38 59% 89%;     /* #f5e9d4 */
+    --signature-peach: 20 96% 73%;     /* #fcab79 */
+    --signature-mint: 151 34% 75%;     /* #a8d8c4 */
+    --signature-yellow: 47 87% 66%;    /* #f4d35e */
+    --signature-mustard: 39 64% 55%;   /* #d9a441 */
+
+    /* shadcn aliases mapped to the tokens above */
+    --background: var(--canvas);
+    --foreground: var(--ink);
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --card-foreground: var(--ink);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 98%;
+    --secondary-foreground: var(--ink);
+    --muted-foreground: var(--muted);
+    --accent: 210 40% 98%;
+    --accent-foreground: var(--ink);
+    --border: var(--hairline);
+    --input: var(--hairline);
+    --ring: var(--info-border);
+    --popover: 0 0% 100%;
+    --popover-foreground: var(--ink);
+
+    /* DESIGN.md radius scale: inputs 6px, cards 10px, primary 12px */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --radius-pill: 9999px;
+    --radius-full: 9999px;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: var(--surface-dark);
+    --foreground: 0 0% 100%;
+    --card: 220 13% 13%;
+    --card-foreground: 0 0% 100%;
+    --primary: 0 0% 100%;
+    --primary-foreground: var(--ink);
+    --secondary: 218 10% 20%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 218 10% 20%;
+    --muted-foreground: 210 7% 72%;
+    --accent: 218 10% 20%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 15 100% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 218 10% 20%;
+    --input: 218 10% 20%;
+    --ring: var(--info-border);
+    --popover: 220 13% 13%;
+    --popover-foreground: 0 0% 100%;
   }
 }
 
@@ -51,5 +92,12 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 {
+    font-weight: 500; /* DESIGN.md: display never bolder than 500 */
+    letter-spacing: -0.01em;
   }
 }

@@ -1,12 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AtSign, MessageSquare, CheckCheck, Reply, ExternalLink } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { getPlatform } from "@/lib/platform-meta";
 
 interface Mention {
   id: number;
-  accountId: number;
   platform: string;
-  platformMentionId: string;
   authorHandle: string;
   authorName: string | null;
   text: string;
@@ -14,29 +18,21 @@ interface Mention {
   mentionedAt: number;
   isRead: number;
   accountLabel: string | null;
-  accountHandle: string | null;
 }
 
 interface Comment {
   id: number;
-  postId: number;
-  accountId: number;
   platform: string;
-  platformCommentId: string;
   authorHandle: string;
   text: string;
   postedAt: number;
   isReplied: number;
-  replyId: string | null;
   postCaption: string | null;
   postUrl: string | null;
   accountLabel: string | null;
 }
 
-type Tab = "mentions" | "comments";
-
 export function InboxView() {
-  const [tab, setTab] = useState<Tab>("mentions");
   const [mentions, setMentions] = useState<Mention[] | null>(null);
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,141 +74,151 @@ export function InboxView() {
       return;
     }
     await refresh();
-    alert("Reply queued");
   }
+
+  const unreadMentions = mentions?.filter((m) => m.isRead === 0).length ?? 0;
+  const unrepliedComments = comments?.filter((c) => c.isReplied === 0).length ?? 0;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setTab("mentions")}
-          className={`rounded-md px-3 py-1 text-sm ${tab === "mentions" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
-        >
-          Mentions {mentions && <span className="ml-1 text-xs opacity-70">({mentions.length})</span>}
-        </button>
-        <button
-          onClick={() => setTab("comments")}
-          className={`rounded-md px-3 py-1 text-sm ${tab === "comments" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
-        >
-          Comments {comments && <span className="ml-1 text-xs opacity-70">({comments.length})</span>}
-        </button>
-        {tab === "mentions" && (
-          <button onClick={markAllRead} className="ml-auto text-xs text-muted-foreground hover:underline">
-            Mark all read
-          </button>
-        )}
-      </div>
+      {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <Tabs defaultValue="mentions">
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="mentions" className="flex items-center gap-1.5">
+              <AtSign className="h-3.5 w-3.5" /> Mentions
+              {unreadMentions > 0 && (
+                <Badge className="bg-primary text-white">{unreadMentions}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="comments" className="flex items-center gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5" /> Comments
+              {unrepliedComments > 0 && (
+                <Badge className="bg-primary text-white">{unrepliedComments}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+          <Button variant="ghost" size="sm" onClick={markAllRead} className="text-muted-foreground">
+            <CheckCheck className="h-4 w-4" /> Mark all read
+          </Button>
+        </div>
 
-      {tab === "mentions" && (
-        <ul className="space-y-2">
+        <TabsContent value="mentions" className="space-y-2">
           {mentions === null && <p className="text-sm text-muted-foreground">Loading...</p>}
           {mentions && mentions.length === 0 && (
-            <li className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              No mentions yet. The poller checks every 10 min.
-            </li>
+            <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              No mentions yet — the poller checks every 10 minutes.
+            </div>
           )}
           {mentions?.map((m) => (
-            <Item
+            <InboxItem
               key={m.id}
-              header={
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-medium">{m.platform}</span>
-                  <span className="text-muted-foreground">{m.accountLabel ?? m.accountHandle}</span>
-                  <span>@{m.authorHandle}</span>
-                  {m.isRead === 0 && <span className="rounded-full bg-blue-500 px-1.5 text-[10px] text-white">new</span>}
-                </div>
-              }
-              body={m.text}
-              link={m.url ?? undefined}
+              platform={m.platform}
+              label={m.accountLabel ?? ""}
+              author={m.authorHandle}
+              text={m.text}
               time={m.mentionedAt}
+              url={m.url ?? undefined}
+              isNew={m.isRead === 0}
               onReply={(text) => void reply("mention", m.id, text)}
             />
           ))}
-        </ul>
-      )}
+        </TabsContent>
 
-      {tab === "comments" && (
-        <ul className="space-y-2">
+        <TabsContent value="comments" className="space-y-2">
           {comments === null && <p className="text-sm text-muted-foreground">Loading...</p>}
           {comments && comments.length === 0 && (
-            <li className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              No comments yet. The poller runs on every analytics poll cycle.
-            </li>
+            <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              No comments yet.
+            </div>
           )}
           {comments?.map((c) => (
-            <Item
+            <InboxItem
               key={c.id}
-              header={
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-medium">{c.platform}</span>
-                  <span className="text-muted-foreground">{c.accountLabel}</span>
-                  <span>@{c.authorHandle}</span>
-                  {c.isReplied === 1 && <span className="rounded-full bg-green-100 px-1.5 text-[10px] text-green-700">replied</span>}
-                </div>
-              }
+              platform={c.platform}
+              label={c.accountLabel ?? ""}
+              author={c.authorHandle}
+              text={c.text}
               context={c.postCaption ?? undefined}
-              body={c.text}
-              link={c.postUrl ?? undefined}
               time={c.postedAt}
-              onReply={c.isReplied ? undefined : (text) => void reply("comment", c.id, text)}
+              url={c.postUrl ?? undefined}
+              isNew={c.isReplied === 0}
+              replied={c.isReplied === 1}
+              onReply={(text) => void reply("comment", c.id, text)}
             />
           ))}
-        </ul>
-      )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-function Item({
-  header, body, context, link, time, onReply,
+function InboxItem({
+  platform, label, author, text, context, time, url, isNew, replied, onReply,
 }: {
-  header: React.ReactNode;
-  body: string;
+  platform: string;
+  label: string;
+  author: string;
+  text: string;
   context?: string;
-  link?: string;
   time: number;
-  onReply?: (text: string) => void;
+  url?: string;
+  isNew?: boolean;
+  replied?: boolean;
+  onReply: (text: string) => void;
 }) {
-  const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const meta = getPlatform(platform);
+
   return (
-    <li className="rounded-md border border-border bg-card p-3 text-sm">
-      {header}
+    <div className={`rounded-md border bg-card p-4 ${isNew ? "border-info-border/50 bg-surface-soft" : "border-hairline"}`}>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${meta?.bg ?? "bg-slate-500"}`}>
+          {meta?.short ?? "?"}
+        </span>
+        <span className="font-medium text-ink">{meta?.name ?? platform}</span>
+        <span>· {label}</span>
+        {isNew && <Badge className="bg-info text-white">new</Badge>}
+        {replied && <Badge variant="success">replied</Badge>}
+        <span className="ml-auto">{new Date(time * 1000).toLocaleString()}</span>
+      </div>
       {context && (
-        <p className="mt-1 text-xs text-muted-foreground">
-          on: {context.length > 60 ? context.slice(0, 60) + "..." : context}
+        <p className="mt-2 text-xs text-muted-foreground">
+          on: {context.length > 60 ? context.slice(0, 60) + "…" : context}
         </p>
       )}
-      <p className="mt-2 whitespace-pre-wrap">{body}</p>
-      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-        <span>{new Date(time * 1000).toLocaleString()}</span>
-        {link && <a className="text-blue-600 hover:underline" href={link} target="_blank" rel="noreferrer">view</a>}
-        {onReply && (
-          <button onClick={() => setOpen((o) => !o)} className="ml-auto text-blue-600 hover:underline">
-            {open ? "cancel" : "reply"}
-          </button>
+      <p className="mt-2 whitespace-pre-wrap text-sm text-ink">
+        <span className="font-medium">@{author}</span> — {text}
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-link hover:underline">
+            <ExternalLink className="h-3 w-3" /> view
+          </a>
         )}
+        <Button variant="ghost" size="sm" className="ml-auto text-xs text-muted-foreground" onClick={() => setOpen((o) => !o)}>
+          <Reply className="h-3.5 w-3.5" /> {open ? "cancel" : "reply"}
+        </Button>
       </div>
-      {open && onReply && (
+      {open && (
         <div className="mt-2 space-y-2">
-          <textarea
+          <Textarea
             rows={2}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-            placeholder="Write a reply..."
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder={`Reply to @${author}...`}
           />
-          <button
-            onClick={() => { onReply(text); setText(""); setOpen(false); }}
-            disabled={!text.trim()}
-            className="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-50"
+          <Button
+            size="sm"
+            disabled={!replyText.trim()}
+            onClick={() => { onReply(replyText); setReplyText(""); setOpen(false); }}
           >
-            Send
-          </button>
+            Send reply
+          </Button>
         </div>
       )}
-    </li>
+    </div>
   );
 }
