@@ -17,12 +17,14 @@ export const PlatformEnum = z.enum([
 
 export const CreateAccountBody = z.object({
   platform: PlatformEnum,
-  // User-supplied friendly name (unique per platform). e.g. "Marketing X", "Personal IG"
-  label: z.string().min(1).max(64),
+  // User-supplied friendly name (unique per platform). Auto-generated from
+  // platform name + sequence if omitted.
+  label: z.string().min(1).max(64).optional(),
+  // Handle is only required where the platform needs it (Bluesky identifier,
+  // Mastodon/@handle). For OAuth platforms it's optional — the account is
+  // identified by label.
   handle: z.string().max(128).optional().default(""),
   displayName: z.string().max(128).optional(),
-  // For OAuth-flow accounts, the secret comes from the token exchange.
-  // For bot/token-paste accounts, the user supplies it directly.
   creds: z.object({
     accessToken: z.string().min(1),
     refreshToken: z.string().optional(),

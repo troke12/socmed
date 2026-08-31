@@ -70,7 +70,8 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
     );
   }
 
-  const label = parsed.label ?? parsed.handle;
+  const label = parsed.label ?? (parsed.handle || (await nextLabel(platform as Platform)));
+  const handle = parsed.handle ?? "";
   const dup = db
     .select({ id: accounts.id })
     .from(accounts)
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
     .values({
       platform: platform as Platform,
       label,
-      handle: parsed.handle,
+      handle: handle,
       displayName: parsed.displayName ?? null,
       instanceUrl: parsed.instanceUrl ?? null,
       encryptedCreds: Buffer.alloc(0),
@@ -113,4 +114,15 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
   const res = NextResponse.redirect(new URL("/accounts?ok=1", req.url));
   res.cookies.set("oauth_state", "", { path: "/", maxAge: 0 });
   return res;
+}
+
+// Auto-label: "X 1", "X 2", ... per platform when the user skipped naming.
+async function nextLabel(platform: Platform): Promise<string> {
+  const row = db
+    .select({ n: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.platform, platform))
+    .all();
+  const display = platform.charAt(0).toUpperCase() + platform.slice(1);
+  return `${display} ${row.length + 1}`;
 }

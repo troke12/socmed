@@ -13,9 +13,12 @@ const Body = z.object({
     "facebook", "threads", "youtube", "pinterest", "reddit",
     "mastodon", "bluesky", "discord",
   ]),
-  handle: z.string().min(1).max(64),
+  // Optional for OAuth platforms — label is auto-generated. Mastodon uses
+  // instanceUrl instead. Bluesky/Discord don't use this route.
+  handle: z.string().max(64).optional(),
+  label: z.string().max(64).optional(),
   displayName: z.string().max(128).optional(),
-  // For Mastodon: required. For other platforms: optional.
+  // For Mastodon: required (instance URL).
   instanceUrl: z.string().url().optional(),
 });
 
@@ -28,7 +31,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
   }
-  const { platform, handle, displayName, instanceUrl } = parsed.data;
+  const { platform, handle, label, displayName, instanceUrl } = parsed.data;
   try {
     const baseUrl = process.env.SOCMED_BASE_URL ?? "http://localhost:3000";
     const redirectUri = `${baseUrl}/api/accounts/oauth/callback/${platform}`;
@@ -62,7 +65,7 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ authUrl });
     res.cookies.set(
       "oauth_state",
-      JSON.stringify({ platform, handle, displayName, instanceUrl, state }),
+      JSON.stringify({ platform, handle: handle ?? "", label, displayName, instanceUrl, state }),
       { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 },
     );
     return res;
