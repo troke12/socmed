@@ -1,0 +1,157 @@
+import { sqliteTable, text, integer, blob, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const accounts = sqliteTable(
+  "accounts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    platform: text("platform", {
+      enum: [
+        "tiktok",
+        "linkedin",
+        "instagram",
+        "x",
+        "facebook",
+        "threads",
+        "youtube",
+        "pinterest",
+        "reddit",
+        "mastodon",
+        "bluesky",
+        "discord",
+      ],
+    }).notNull(),
+    // Internal label for the user (e.g. "Marketing X", "Personal IG"). Unique per platform.
+    label: text("label").notNull(),
+    handle: text("handle").notNull().default(""),
+    displayName: text("display_name"),
+    encryptedCreds: blob("encrypted_creds", { mode: "buffer" }).notNull(),
+    credsIv: blob("creds_iv", { mode: "buffer" }).notNull(),
+    credsTag: blob("creds_tag", { mode: "buffer" }).notNull(),
+    webhookSecret: text("webhook_secret").notNull(),
+    scopes: text("scopes").notNull().default("[]"),
+    tokenExpiresAt: integer("token_expires_at"),
+    lastRefreshAt: integer("last_refresh_at"),
+    // For Mastodon: instance URL. For Discord: guild ID. For Bluesky: PDS URL. etc.
+    instanceUrl: text("instance_url"),
+    status: text("status", { enum: ["active", "revoked", "expired"] })
+      .notNull()
+      .default("active"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    platformLabelUq: uniqueIndex("accounts_platform_label_uq").on(t.platform, t.label),
+  }),
+);
+
+export const mediaAssets = sqliteTable("media_assets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  path: text("path").notNull(),
+  kind: text("kind", { enum: ["image", "video"] }).notNull(),
+  mime: text("mime").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  durationMs: integer("duration_ms"),
+  posterPath: text("poster_path"),
+  altText: text("alt_text"),
+  sha256: text("sha256").notNull().unique(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const posts = sqliteTable(
+  "posts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["text", "image", "video", "carousel", "link"] }).notNull(),
+    status: text("status", {
+      enum: ["draft", "scheduled", "publishing", "published", "failed", "archived"],
+    })
+      .notNull()
+      .default("draft"),
+    caption: text("caption").notNull().default(""),
+    hashtags: text("hashtags").notNull().default(""),
+    linkUrl: text("link_url"),
+    scheduledFor: integer("scheduled_for"),
+    publishedAt: integer("published_at"),
+    platformPostId: text("platform_post_id"),
+    platformPostUrl: text("platform_post_url"),
+    error: text("error"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    statusIdx: index("posts_status_idx").on(t.status),
+    accountIdx: index("posts_account_idx").on(t.accountId),
+  }),
+);
+
+export const postMedia = sqliteTable(
+  "post_media",
+  {
+    postId: integer("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    mediaId: integer("media_id")
+      .notNull()
+      .references(() => mediaAssets.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+  },
+  (t) => ({
+    pk: uniqueIndex("post_media_pk").on(t.postId, t.mediaId),
+  }),
+);
+
+export const scheduleRules = sqliteTable("schedule_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  accountId: integer("account_id")
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  cronExpr: text("cron_expr").notNull(),
+  timezone: text("timezone").notNull().default("UTC"),
+  templatePostId: integer("template_post_id").references(() => posts.id, { onDelete: "set null" }),
+  enabled: integer("enabled").notNull().default(1),
+  nextRunAt: integer("next_run_at").notNull(),
+  lastRunAt: integer("last_run_at"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const jobs = sqliteTable("jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind").notNull(),
+  payload: text("payload").notNull(),
+  runAt: integer("run_at").notNull(),
+  claimedAt: integer("claimed_at"),
+  claimedBy: text("claimed_by"),
+  status: text("status", { enum: ["pending", "running", "done", "failed", "dead"] })
+    .notNull()
+    .default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  lastError: text("last_error"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+export type Platform = Account["platform"];
+export type Post = typeof posts.$inferSelect;
+export type NewPost = typeof posts.$inferInsert;
+export type PostStatus = Post["status"];
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type ScheduleRule = typeof scheduleRules.$inferSelect;
+export type Job = typeof jobs.$inferSelect;
+export type JobKind = "publish_post" | "fetch_metrics" | "fetch_mentions" | "post_comment" | "refresh_token" | "schedule_rule";

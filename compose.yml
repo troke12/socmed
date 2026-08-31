@@ -1,0 +1,51 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: socmed-web:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SOCMED_DB_PATH: /app/data/app.db
+      SOCMED_UPLOADS_DIR: /app/data/uploads
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    image: socmed-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SOCMED_DB_PATH: /app/data/app.db
+      SOCMED_UPLOADS_DIR: /app/data/uploads
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - web
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SOCMED_DOMAIN: ${SOCMED_DOMAIN:-localhost}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

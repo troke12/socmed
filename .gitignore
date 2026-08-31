@@ -1,0 +1,40 @@
+node_modules
+.next
+.turbo
+dist
+build
+out
+
+# env
+.env
+.env.local
+.env.*.local
+
+# runtime data (bind-mounted on VM, never in git)
+data/
+
+# logs
+*.log
+data/logs/
+
+# os / editor
+.DS_Store
+.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# typescript
+*.tsbuildinfo
+
+# tests
+coverage
+playwright-report
+test-results
+
+# secrets
+*.pem
+*.key
+
+# Command Code agent metadata
+.commandcode/
