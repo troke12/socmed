@@ -5,6 +5,6 @@ import { redirect } from "next/navigation";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
 
 export async function logoutAction(): Promise<void> {
-  cookies().set(SESSION_COOKIE_NAME, "", { path: "/", maxAge: 0 });
+  (await cookies()).set(SESSION_COOKIE_NAME, "", { path: "/", maxAge: 0 });
   redirect("/login");
 }

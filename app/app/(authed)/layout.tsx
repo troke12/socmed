@@ -4,13 +4,11 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE_NAME, parseSessionCookie } from "@/lib/auth/session";
 import { logoutAction } from "@/app/(authed)/actions";
 import {
-  LayoutDashboard,
   Users,
   PenSquare,
   CalendarDays,
   BarChart3,
   Inbox,
-  Settings,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -24,8 +22,9 @@ const NAV = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
 ];
 
-export default function AuthedLayout({ children }: { children: React.ReactNode }) {
-  const session = parseSessionCookie(cookies().get(SESSION_COOKIE_NAME)?.value);
+export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
+  const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  const session = parseSessionCookie(cookie);
   if (!session) redirect("/login");
 
   return (

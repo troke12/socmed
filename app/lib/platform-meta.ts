@@ -1,5 +1,21 @@
 // Shared platform metadata for the UI. Single source of truth for
-// labels, brand colors, and lucide icons used across pages.
+// labels, brand colors, and icons (Font Awesome brands) used across pages.
+
+import {
+  faXTwitter,
+  faLinkedinIn,
+  faInstagram,
+  faFacebookF,
+  faThreads,
+  faTiktok,
+  faYoutube,
+  faPinterestP,
+  faRedditAlien,
+  faMastodon,
+  faBluesky,
+  faDiscord,
+} from "@fortawesome/free-brands-svg-icons";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 
 export type PlatformId =
   | "tiktok"
@@ -18,7 +34,8 @@ export type PlatformId =
 export interface PlatformMeta {
   id: PlatformId;
   name: string;
-  short: string; // brand-ish initial for the avatar
+  /** Font Awesome brand icon (render via <FontAwesomeIcon icon={...} />) */
+  icon: IconDefinition;
   color: string; // brand color (hex)
   bg: string; // tailwind bg class (light)
   text: string; // tailwind text class
@@ -30,7 +47,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "x",
     name: "X (Twitter)",
-    short: "𝕏",
+    icon: faXTwitter,
     color: "#000000",
     bg: "bg-slate-950",
     text: "text-white",
@@ -40,7 +57,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "linkedin",
     name: "LinkedIn",
-    short: "in",
+    icon: faLinkedinIn,
     color: "#0A66C2",
     bg: "bg-[#0A66C2]",
     text: "text-white",
@@ -50,7 +67,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "instagram",
     name: "Instagram",
-    short: "IG",
+    icon: faInstagram,
     color: "#E1306C",
     bg: "bg-gradient-to-tr from-[#F58529] via-[#E1306C] to-[#833AB4]",
     text: "text-white",
@@ -60,7 +77,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "facebook",
     name: "Facebook",
-    short: "f",
+    icon: faFacebookF,
     color: "#1877F2",
     bg: "bg-[#1877F2]",
     text: "text-white",
@@ -70,7 +87,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "threads",
     name: "Threads",
-    short: "@",
+    icon: faThreads,
     color: "#000000",
     bg: "bg-slate-950",
     text: "text-white",
@@ -80,7 +97,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "tiktok",
     name: "TikTok",
-    short: "TT",
+    icon: faTiktok,
     color: "#000000",
     bg: "bg-slate-950",
     text: "text-white",
@@ -90,7 +107,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "youtube",
     name: "YouTube",
-    short: "▶",
+    icon: faYoutube,
     color: "#FF0000",
     bg: "bg-[#FF0000]",
     text: "text-white",
@@ -100,7 +117,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "pinterest",
     name: "Pinterest",
-    short: "P",
+    icon: faPinterestP,
     color: "#E60023",
     bg: "bg-[#E60023]",
     text: "text-white",
@@ -110,7 +127,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "reddit",
     name: "Reddit",
-    short: "r",
+    icon: faRedditAlien,
     color: "#FF4500",
     bg: "bg-[#FF4500]",
     text: "text-white",
@@ -120,7 +137,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "mastodon",
     name: "Mastodon",
-    short: "M",
+    icon: faMastodon,
     color: "#6364FF",
     bg: "bg-[#6364FF]",
     text: "text-white",
@@ -130,7 +147,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "bluesky",
     name: "Bluesky",
-    short: "☁",
+    icon: faBluesky,
     color: "#0A7AFF",
     bg: "bg-[#0A7AFF]",
     text: "text-white",
@@ -140,7 +157,7 @@ export const PLATFORMS: PlatformMeta[] = [
   {
     id: "discord",
     name: "Discord",
-    short: "D",
+    icon: faDiscord,
     color: "#5865F2",
     bg: "bg-[#5865F2]",
     text: "text-white",
