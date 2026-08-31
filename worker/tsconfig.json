@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@db/*": ["../app/lib/db/*"],
+      "@platforms/*": ["../app/lib/platforms/*"],
+      "@worker/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "../app/lib/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
