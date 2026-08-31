@@ -9,10 +9,23 @@
 //   5. Set YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET in .env
 //   6. User must have a YouTube channel (auto-created with first upload)
 //
-// Upload (resumable): two-step — create video resource, then PUT bytes.
-// Quota: 10,000 units/day default; upload costs 1,600 units.
+// Upload (resumable): two-step — create video resource, then PUT bytes in chunks.
+//
+// Quota: videos.insert has its own quota bucket, NOT the shared units pool.
+// Default allocation is 100 videos.insert calls/day (and separately 100
+// search.list calls/day), plus 10,000 units/day combined for every other
+// endpoint. So an upload costs 1 unit in the "Video Uploads" bucket — the
+// practical ceiling is 100 uploads/day, independent of read/write traffic.
+// Daily quotas reset at midnight Pacific Time.
+// https://developers.google.com/youtube/v3/getting-started#quota
+//
+// Auth note: tokens go in the Authorization header, never as an access_token
+// query param — URI parameters leak into logs and proxies.
+// https://developers.google.com/identity/protocols/oauth2
 
+import { createHash, randomBytes } from "node:crypto";
 import type { EncryptedCreds } from "../types";
+import { verifyHmacHeader } from "../../security/webhook";
 
 const API = "https://www.googleapis.com/youtube/v3";
 const UPLOAD = "https://www.googleapis.com/upload/youtube/v3";
@@ -28,7 +41,6 @@ export function getYouTubeEnv(): { clientId: string; clientSecret: string; redir
 }
 
 export function youtubeGeneratePkce(): { verifier: string; challenge: string } {
-  const { randomBytes, createHash } = require("node:crypto") as typeof import("node:crypto");
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   return { verifier, challenge };
@@ -108,16 +120,81 @@ export async function youtubeGetMyChannel(accessToken: string): Promise<YouTubeC
   const url = new URL(`${API}/channels`);
   url.searchParams.set("part", "id,snippet");
   url.searchParams.set("mine", "true");
-  url.searchParams.set("access_token", accessToken);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new Error(`YouTube channels: ${res.status} ${await res.text()}`);
   const j = (await res.json()) as { items?: YouTubeChannel[] };
   if (!j.items || j.items.length === 0) throw new Error("YouTube: no channel found for this account");
   return j.items[0]!;
 }
 
-// Resumable upload: step 1 — POST metadata with X-Upload-Content-Length to get upload URL
-// step 2 — PUT the bytes to the upload URL
+// Chunk size for resumable PUTs. The protocol requires every chunk except the
+// last to be a multiple of 256 KB, and all non-final chunks to be the same
+// size. 8 MB keeps peak memory bounded (one chunk buffer, not the whole file)
+// while staying large enough that per-request overhead stays negligible.
+// https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol
+const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
+const UPLOAD_MAX_ATTEMPTS = 5;
+
+// Retryable per the protocol: 500, 502, 503, 504 (plus transport-level errors).
+// Anything else 4xx/5xx is a permanent failure. 404 specifically means the
+// upload session expired and cannot be resumed at all.
+function isRetryableUploadStatus(status: number): boolean {
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Exponential backoff with jitter, per Google's resumable-upload guidance.
+function backoffDelayMs(attempt: number): number {
+  return 2 ** attempt * 1000 + Math.floor(Math.random() * 1000);
+}
+
+// "bytes=0-999999" => 1000000 (next byte to send). Absent/unparseable Range
+// header means the server has nothing yet, so resume from 0.
+function nextOffsetFromRange(rangeHeader: string | null): number {
+  if (!rangeHeader) return 0;
+  const m = /bytes=\d+-(\d+)/.exec(rangeHeader);
+  if (!m?.[1]) return 0;
+  return Number(m[1]) + 1;
+}
+
+// Step 4.1 of the protocol: empty PUT with `Content-Range: bytes *\/TOTAL`
+// asks the server how much it actually received. Returns the completed video
+// resource if the upload already finished, otherwise the byte offset to
+// resume from. We use this instead of trusting our own counter after a failure
+// — the server is the authority on what landed.
+async function youtubeQueryUploadStatus(
+  uploadUrl: string,
+  total: number,
+  accessToken: string,
+): Promise<{ done: true; id: string } | { done: false; offset: number }> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-range": `bytes */${total}`,
+      "content-length": "0",
+    },
+  });
+  if (res.status === 200 || res.status === 201) {
+    const j = (await res.json()) as { id: string };
+    return { done: true, id: j.id };
+  }
+  if (res.status === 308) {
+    return { done: false, offset: nextOffsetFromRange(res.headers.get("range")) };
+  }
+  throw new Error(`YouTube upload status: ${res.status} ${await res.text()}`);
+}
+
+// Resumable upload:
+//   step 1 — POST metadata with X-Upload-Content-Length to get the session URL
+//   step 2 — PUT the bytes in fixed-size chunks, each with a Content-Range
+//            header; non-final chunks answer 308, the final one answers 201
+//            with the video resource.
+// The file is read one chunk at a time via a file handle (positional reads),
+// so memory stays flat regardless of video size.
 export async function youtubeUploadVideo(
   videoPath: string,
   title: string,
@@ -126,11 +203,12 @@ export async function youtubeUploadVideo(
   tags: string[] = [],
   privacyStatus: "public" | "unlisted" | "private" = "unlisted",
 ): Promise<{ id: string; url: string }> {
-  const { readFile, stat } = await import("node:fs/promises");
+  const { open, stat } = await import("node:fs/promises");
   const { extname } = await import("node:path");
   const ext = extname(videoPath).toLowerCase().replace(".", "");
-  const data = await readFile(videoPath);
   const stats = await stat(videoPath);
+  const total = stats.size;
+  if (total === 0) throw new Error("YouTube: video file is empty");
   const mime = ext === "mp4" ? "video/mp4" : ext === "mov" ? "video/quicktime" : "application/octet-stream";
 
   const body = JSON.stringify({
@@ -146,7 +224,7 @@ export async function youtubeUploadVideo(
       headers: {
         authorization: `Bearer ${accessToken}`,
         "content-type": "application/json; charset=UTF-8",
-        "x-upload-content-length": String(stats.size),
+        "x-upload-content-length": String(total),
         "x-upload-content-type": mime,
       },
       body,
@@ -156,15 +234,87 @@ export async function youtubeUploadVideo(
   const uploadUrl = initRes.headers.get("location");
   if (!uploadUrl) throw new Error("YouTube: no upload URL returned");
 
-  // Step 2: PUT bytes
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "content-type": mime },
-    body: data,
-  });
-  if (!putRes.ok) throw new Error(`YouTube upload: ${putRes.status} ${await putRes.text()}`);
-  const j = (await putRes.json()) as { id: string };
-  return { id: j.id, url: `https://www.youtube.com/watch?v=${j.id}` };
+  // Step 2: chunked PUTs
+  const fh = await open(videoPath, "r");
+  try {
+    const buf = Buffer.allocUnsafe(UPLOAD_CHUNK_SIZE);
+    let offset = 0;
+    let attempt = 0;
+
+    while (offset < total) {
+      const len = Math.min(UPLOAD_CHUNK_SIZE, total - offset);
+      const { bytesRead } = await fh.read(buf, 0, len, offset);
+      if (bytesRead === 0) throw new Error("YouTube upload: unexpected EOF reading video file");
+      const chunk = buf.subarray(0, bytesRead);
+      const last = offset + bytesRead;
+
+      let res: Response;
+      try {
+        res = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": mime,
+            "content-range": `bytes ${offset}-${last - 1}/${total}`,
+          },
+          body: chunk,
+        });
+      } catch (err) {
+        // Transport failure (dropped connection). Ask the server where it got
+        // to, then retry from there rather than blindly re-sending.
+        if (++attempt >= UPLOAD_MAX_ATTEMPTS) {
+          throw new Error(`YouTube upload: network failure after ${attempt} attempts: ${String(err)}`);
+        }
+        await sleep(backoffDelayMs(attempt));
+        const st = await youtubeQueryUploadStatus(uploadUrl, total, accessToken);
+        if (st.done) return { id: st.id, url: `https://www.youtube.com/watch?v=${st.id}` };
+        offset = st.offset;
+        continue;
+      }
+
+      if (res.status === 308) {
+        // Non-final chunk accepted. Trust the server's Range over our own
+        // arithmetic; it may have accepted only part of the chunk.
+        const serverOffset = nextOffsetFromRange(res.headers.get("range"));
+        offset = serverOffset > offset ? serverOffset : last;
+        attempt = 0;
+        continue;
+      }
+
+      if (res.status === 200 || res.status === 201) {
+        const j = (await res.json()) as { id: string };
+        return { id: j.id, url: `https://www.youtube.com/watch?v=${j.id}` };
+      }
+
+      if (isRetryableUploadStatus(res.status)) {
+        if (++attempt >= UPLOAD_MAX_ATTEMPTS) {
+          throw new Error(`YouTube upload: ${res.status} after ${attempt} attempts ${await res.text()}`);
+        }
+        await sleep(backoffDelayMs(attempt));
+        const st = await youtubeQueryUploadStatus(uploadUrl, total, accessToken);
+        if (st.done) return { id: st.id, url: `https://www.youtube.com/watch?v=${st.id}` };
+        offset = st.offset;
+        continue;
+      }
+
+      // 404 = session URI expired (a fresh init is required); any other
+      // 4xx/5xx is permanent. Neither is resumable, so surface it.
+      const detail = await res.text();
+      throw new Error(
+        res.status === 404
+          ? `YouTube upload: session expired (404), upload must be restarted ${detail}`
+          : `YouTube upload: ${res.status} ${detail}`,
+      );
+    }
+
+    // Loop drained without a 2xx: the server holds all bytes but hasn't
+    // returned the resource. Ask it explicitly.
+    const st = await youtubeQueryUploadStatus(uploadUrl, total, accessToken);
+    if (st.done) return { id: st.id, url: `https://www.youtube.com/watch?v=${st.id}` };
+    throw new Error("YouTube upload: all bytes sent but server reports upload incomplete");
+  } finally {
+    await fh.close();
+  }
 }
 
 export async function youtubeFetchVideoStats(
@@ -174,8 +324,7 @@ export async function youtubeFetchVideoStats(
   const url = new URL(`${API}/videos`);
   url.searchParams.set("part", "statistics");
   url.searchParams.set("id", videoId);
-  url.searchParams.set("access_token", accessToken);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { views: 0, likes: 0, comments: 0 };
   const j = (await res.json()) as { items?: Array<{ statistics: { viewCount?: string; likeCount?: string; commentCount?: string } }> };
   const s = j.items?.[0]?.statistics ?? {};
@@ -195,8 +344,7 @@ export async function youtubeFetchComments(
   url.searchParams.set("videoId", videoId);
   url.searchParams.set("maxResults", "50");
   url.searchParams.set("order", "time");
-  url.searchParams.set("access_token", accessToken);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return [];
   const j = (await res.json()) as {
     items: Array<{
@@ -219,10 +367,9 @@ export async function youtubeReplyToComment(
 ): Promise<{ id: string }> {
   const url = new URL(`${API}/comments`);
   url.searchParams.set("part", "snippet");
-  url.searchParams.append("access_token", accessToken);
   const res = await fetch(url.toString(), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
     body: JSON.stringify({ snippet: { parentId, textOriginal: text } }),
   });
   if (!res.ok) throw new Error(`YouTube reply: ${res.status} ${await res.text()}`);
@@ -231,11 +378,15 @@ export async function youtubeReplyToComment(
 }
 
 export async function youtubeDeleteVideo(videoId: string, accessToken: string): Promise<void> {
-  const res = await fetch(`${API}/videos?id=${videoId}&access_token=${encodeURIComponent(accessToken)}`, {
+  const res = await fetch(`${API}/videos?id=${encodeURIComponent(videoId)}`, {
     method: "DELETE",
+    headers: { authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok && res.status !== 404) throw new Error(`YouTube delete: ${res.status} ${await res.text()}`);
 }
 
-export function youtubeVerifyWebhookSignature(_raw: string, _headers: Record<string, string>): boolean { return true; }
+export function youtubeVerifyWebhookSignature(raw: string, headers: Record<string, string>): boolean {
+  const secret = process.env.YOUTUBE_CLIENT_SECRET ?? "";
+  return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-youtube-signature"] ?? headers["signature"]);
+}
 export function youtubeParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }

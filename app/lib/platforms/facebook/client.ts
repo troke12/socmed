@@ -11,6 +11,7 @@
 // Posting: POST /{page-id}/feed with message (or /photos for image, /videos for video)
 
 import type { EncryptedCreds } from "../types";
+import { verifyHubSignature } from "../../security/webhook";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -200,8 +201,10 @@ export async function facebookReplyToComment(
   return { id: j.id };
 }
 
-export function facebookVerifyWebhookSignature(_raw: string, _headers: Record<string, string>): boolean {
-  return true; // HMAC verification done separately via X-Hub-Signature-256
+export function facebookVerifyWebhookSignature(raw: string, headers: Record<string, string>): boolean {
+  // X-Hub-Signature-256: sha256=<hmac of raw body with the app secret>
+  const secret = process.env.FACEBOOK_APP_SECRET ?? process.env.INSTAGRAM_APP_SECRET ?? "";
+  return secret.length > 0 && verifyHubSignature(secret, raw, headers["x-hub-signature-256"]);
 }
 
 export function facebookParseWebhookEvent(raw: string, _headers: Record<string, string>): { challenge?: string } {

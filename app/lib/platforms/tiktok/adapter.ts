@@ -7,7 +7,26 @@ import {
   tiktokPublishVideo,
   tiktokRefresh,
   tiktokVerifyWebhookSignature,
+  type TikTokPrivacyLevel,
 } from "./client";
+
+const PRIVACY_LEVELS: readonly TikTokPrivacyLevel[] = [
+  "PUBLIC_TO_EVERYONE",
+  "MUTUAL_FOLLOW_FRIENDS",
+  "FOLLOWER_OF_CREATOR",
+  "SELF_ONLY",
+];
+
+// Direct post is off unless explicitly enabled: TikTok rejects any non-SELF_ONLY
+// direct post from a client that has not passed its content-posting audit, so the
+// safe default is the inbox/draft flow, which needs no audit.
+function tiktokDirectPostConfig(): { directPost: boolean; privacyLevel?: TikTokPrivacyLevel } {
+  const directPost = process.env.TIKTOK_DIRECT_POST === "true";
+  if (!directPost) return { directPost: false };
+  const raw = process.env.TIKTOK_PRIVACY_LEVEL;
+  const privacyLevel = PRIVACY_LEVELS.find((p) => p === raw);
+  return { directPost: true, privacyLevel };
+}
 
 export const tiktokAdapter: PlatformAdapter = {
   platform: "tiktok",
@@ -19,7 +38,13 @@ export const tiktokAdapter: PlatformAdapter = {
     if (!input.mediaPaths || input.mediaPaths.length === 0) {
       throw new Error("TikTok requires a video");
     }
-    const r = await tiktokPublishVideo(input.mediaPaths[0]!, input.caption, input.accessToken);
+    // input.caption already has hashtags folded in by the publish handler.
+    const r = await tiktokPublishVideo(
+      input.mediaPaths[0]!,
+      input.caption,
+      input.accessToken,
+      tiktokDirectPostConfig(),
+    );
     return { platformPostId: r.id, platformPostUrl: r.url };
   },
   async deletePost(_id: string, _token: string, _ctx: AdapterContext) { /* out of scope for v1 */ },

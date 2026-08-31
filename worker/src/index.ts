@@ -7,17 +7,17 @@ import { startMentionsPoller, stopMentionsPoller } from "./pollers/mentions";
 const HEALTH_INTERVAL_MS = 30_000;
 
 async function main(): Promise<void> {
-  // eslint-disable-next-line no-console
+   
   console.log(`[${new Date().toISOString()}] [worker] booting`);
 
   try {
     const { applied } = await runMigrations();
     if (applied.length > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`[${new Date().toISOString()}] [worker] applied migrations: ${applied.join(", ")}`);
     }
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.error(`[${new Date().toISOString()}] [worker] migrations failed:`, e);
     process.exit(1);
   }
@@ -28,14 +28,14 @@ async function main(): Promise<void> {
   startMentionsPoller();
 
   const health = setInterval(() => {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[${new Date().toISOString()}] [worker] health: running, currentJob=${getCurrentJobId() ?? "none"}`,
     );
   }, HEALTH_INTERVAL_MS);
 
   function shutdown(signal: string): void {
-    // eslint-disable-next-line no-console
+     
     console.log(`[${new Date().toISOString()}] [worker] received ${signal}, shutting down`);
     stopScheduler();
     stopCron();
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  // eslint-disable-next-line no-console
+   
   console.error(`[${new Date().toISOString()}] [worker] fatal:`, e);
   process.exit(1);
 });

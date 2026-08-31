@@ -5,7 +5,7 @@
 //   1. Same Meta app as Facebook/Instagram (or new one)
 //   2. Add "Threads API" product
 //   3. App must be Live (not Dev) for write endpoints
-//   4. User OAuth scopes: threads_basic, threads_content_publish, threads_manage_replies, threads_read_replies
+//   4. User OAuth scopes: threads_basic, threads_content_publish, threads_manage_replies, threads_read_replies, threads_manage_insights
 //   5. Get user_id + username + threads access token via /me?fields=id,username,threads_profile_picture_url
 //   6. In this app: Accounts → Add → threads, paste access token + threads user id
 //
@@ -18,6 +18,7 @@
 // Container publish status: PUBLISH, IN_PROGRESS, EXPIRED, ERROR
 
 import type { EncryptedCreds } from "../types";
+import { verifyHubSignature } from "../../security/webhook";
 
 const GRAPH = "https://graph.threads.net/v1.0";
 
@@ -35,11 +36,15 @@ export async function threadsBeginOAuth(): Promise<{ authUrl: string; state: str
   const { appId, redirectUri } = getThreadsEnv();
   const { randomBytes } = await import("node:crypto");
   const state = randomBytes(16).toString("base64url");
-  // Threads OAuth uses graph.threads.net
-  const url = new URL(`${GRAPH}/oauth/authorize`);
+  // Authorization window is on threads.net (unversioned), NOT graph.threads.net.
+  // Only the token exchange (below) uses the graph.threads.net/v1.0 host.
+  const url = new URL("https://threads.net/oauth/authorize");
   url.searchParams.set("client_id", appId);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", "threads_basic,threads_content_publish,threads_manage_replies,threads_read_replies");
+  url.searchParams.set(
+    "scope",
+    "threads_basic,threads_content_publish,threads_manage_replies,threads_read_replies,threads_manage_insights",
+  );
   url.searchParams.set("state", state);
   url.searchParams.set("response_type", "code");
   return { authUrl: url.toString(), state };
@@ -213,5 +218,8 @@ export async function threadsDeleteThread(threadId: string, accessToken: string)
   }
 }
 
-export function threadsVerifyWebhookSignature(_raw: string, _headers: Record<string, string>): boolean { return true; }
+export function threadsVerifyWebhookSignature(raw: string, headers: Record<string, string>): boolean {
+  const secret = process.env.THREADS_APP_SECRET ?? process.env.FACEBOOK_APP_SECRET ?? "";
+  return secret.length > 0 && verifyHubSignature(secret, raw, headers["x-hub-signature-256"]);
+}
 export function threadsParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }

@@ -8,7 +8,7 @@ import { requireSession } from "@/lib/auth/require";
 export const runtime = "nodejs";
 
 export async function GET() {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   await runMigrations();
@@ -36,7 +36,7 @@ export async function GET() {
 
 // Mark all mentions as read for an account
 export async function POST(req: Request) {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as { accountId?: number; all?: boolean };

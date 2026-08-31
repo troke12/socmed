@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult } from "../types";
+import type { PlatformAdapter, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
 import {
   discordDeleteMessage,

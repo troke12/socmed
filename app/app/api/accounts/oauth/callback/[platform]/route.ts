@@ -8,6 +8,7 @@ import { getAdapter } from "@platforms/registry";
 import "@platforms/bootstrap";
 import { encryptJson, pack } from "@platforms/crypto";
 import { mastodonCompleteOAuth } from "@platforms/mastodon/client";
+import { assertSafeOutboundUrl } from "@/lib/security/url";
 
 export const runtime = "nodejs";
 
@@ -17,8 +18,18 @@ const VALID_PLATFORMS = new Set<Platform>([
   "mastodon", "bluesky", "discord",
 ]);
 
-export async function GET(req: NextRequest, ctx: { params: { platform: string } }) {
-  const platform = ctx.params.platform;
+function safeRedirect(raw: string | undefined): string {
+  if (!raw) return "/accounts";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/accounts";
+  if (raw.includes("\\") || raw.includes("..")) return "/accounts";
+  return raw;
+}
+
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ platform: string }> },
+) {
+  const { platform } = await ctx.params;
   if (!VALID_PLATFORMS.has(platform as Platform)) {
     return NextResponse.json({ error: "invalid platform" }, { status: 400 });
   }
@@ -34,7 +45,15 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
   }
   const stateCookie = req.cookies.get("oauth_state")?.value;
   if (!stateCookie) return NextResponse.json({ error: "no oauth_state cookie" }, { status: 400 });
-  let parsed: { platform: string; handle: string; displayName?: string; instanceUrl?: string; state: string; label?: string };
+  let parsed: {
+    platform: string;
+    handle: string;
+    displayName?: string;
+    instanceUrl?: string;
+    state: string;
+    label?: string;
+    redirect?: string;
+  };
   try {
     parsed = JSON.parse(stateCookie);
   } catch {
@@ -45,7 +64,6 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
 
   await runMigrations();
 
-  // For platforms without OAuth (discord, bluesky), the start route should not have been used.
   let creds;
   try {
     const baseUrl = process.env.SOCMED_BASE_URL ?? "http://localhost:3000";
@@ -54,9 +72,15 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
       if (!parsed.instanceUrl) {
         return NextResponse.redirect(new URL("/accounts?error=mastodon_instance_missing", req.url));
       }
+      // SSRF guard on the stored instance URL before exchanging tokens.
+      try {
+        assertSafeOutboundUrl(parsed.instanceUrl, "Mastodon instance URL");
+      } catch (e) {
+        return NextResponse.redirect(
+          new URL(`/accounts?error=${encodeURIComponent((e as Error).message)}`, req.url),
+        );
+      }
       creds = await mastodonCompleteOAuth(code, parsed.instanceUrl);
-      // Persist the instance URL
-      parsed.instanceUrl = parsed.instanceUrl;
     } else {
       const adapter = getAdapter(platform as Parameters<typeof getAdapter>[0]);
       if (!adapter.completeOAuth) {
@@ -82,19 +106,21 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
   }
 
   const now = Math.floor(Date.now() / 1000);
+  const scopeRaw = (creds.raw as { scope?: unknown } | undefined)?.scope;
+  const scopes = typeof scopeRaw === "string" ? scopeRaw.split(/[,\s]+/) : [];
   const temp = db
     .insert(accounts)
     .values({
       platform: platform as Platform,
       label,
-      handle: handle,
+      handle,
       displayName: parsed.displayName ?? null,
       instanceUrl: parsed.instanceUrl ?? null,
       encryptedCreds: Buffer.alloc(0),
       credsIv: Buffer.alloc(0),
       credsTag: Buffer.alloc(0),
       webhookSecret: randomBytes(32).toString("base64url"),
-      scopes: JSON.stringify(creds.raw?.scope ? String(creds.raw.scope).split(/[,\s]+/) : []),
+      scopes: JSON.stringify(scopes),
       tokenExpiresAt: creds.expiresAt ?? null,
       createdAt: now,
       status: "active",
@@ -111,7 +137,8 @@ export async function GET(req: NextRequest, ctx: { params: { platform: string } 
     .where(eq(accounts.id, temp.id))
     .run();
 
-  const res = NextResponse.redirect(new URL("/accounts?ok=1", req.url));
+  const res = NextResponse.redirect(new URL(safeRedirect(parsed.redirect), req.url));
+  // Consume the one-time state cookie.
   res.cookies.set("oauth_state", "", { path: "/", maxAge: 0 });
   return res;
 }

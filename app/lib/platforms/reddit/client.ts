@@ -9,9 +9,16 @@
 // Posting: POST /api/submit with sr (subreddit), kind, title (for link), text (for self)
 
 import type { EncryptedCreds } from "../types";
+import { verifyHmacHeader } from "../../security/webhook";
 
 const API = "https://oauth.reddit.com";
 const AUTH = "https://www.reddit.com/api/v1";
+
+// Reddit requires a unique, descriptive User-Agent on every request, including the
+// contact segment, or it will throttle/block the client in production.
+// Format: <platform>:<app ID>:<version> (by /u/<reddit username>)
+// https://github.com/reddit-archive/reddit/wiki/API
+const USER_AGENT = "socmed:v1.0 (by /u/socmed)";
 
 export function getRedditEnv(): { clientId: string; clientSecret: string; redirectUri: string } {
   const clientId = process.env.REDDIT_CLIENT_ID ?? "";
@@ -47,7 +54,7 @@ export async function redditCompleteOAuth(code: string): Promise<EncryptedCreds>
   });
   const res = await fetch(`${AUTH}/access_token`, {
     method: "POST",
-    headers: { authorization: `Basic ${auth}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "socmed:v1.0 (by /u/socmed)" },
+    headers: { authorization: `Basic ${auth}`, "content-type": "application/x-www-form-urlencoded", "user-agent": USER_AGENT },
     body,
   });
   if (!res.ok) throw new Error(`Reddit token: ${res.status} ${await res.text()}`);
@@ -70,7 +77,7 @@ export async function redditRefresh(creds: EncryptedCreds): Promise<EncryptedCre
   });
   const res = await fetch(`${AUTH}/access_token`, {
     method: "POST",
-    headers: { authorization: `Basic ${auth}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "socmed:v1.0" },
+    headers: { authorization: `Basic ${auth}`, "content-type": "application/x-www-form-urlencoded", "user-agent": USER_AGENT },
     body,
   });
   if (!res.ok) throw new Error(`Reddit refresh: ${res.status} ${await res.text()}`);
@@ -84,7 +91,7 @@ export async function redditRefresh(creds: EncryptedCreds): Promise<EncryptedCre
 
 export async function redditMe(accessToken: string): Promise<{ name: string }> {
   const res = await fetch(`${API}/api/v1/me`, {
-    headers: { authorization: `Bearer ${accessToken}`, "user-agent": "socmed:v1.0" },
+    headers: { authorization: `Bearer ${accessToken}`, "user-agent": USER_AGENT },
   });
   if (!res.ok) throw new Error(`Reddit /me: ${res.status} ${await res.text()}`);
   return (await res.json()) as { name: string };
@@ -103,7 +110,7 @@ export async function redditSubmit(
   if (kind === "link" && url) body.append("url", url);
   const res = await fetch(`${API}/api/submit`, {
     method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "socmed:v1.0" },
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/x-www-form-urlencoded", "user-agent": USER_AGENT },
     body,
   });
   if (!res.ok) throw new Error(`Reddit submit: ${res.status} ${await res.text()}`);
@@ -116,7 +123,7 @@ export async function redditDelete(fullname: string, accessToken: string): Promi
   const body = new URLSearchParams({ id: fullname });
   const res = await fetch(`${API}/api/del`, {
     method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "socmed:v1.0" },
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/x-www-form-urlencoded", "user-agent": USER_AGENT },
     body,
   });
   if (!res.ok) throw new Error(`Reddit delete: ${res.status} ${await res.text()}`);
@@ -131,7 +138,7 @@ export async function redditFetchPostComments(
   url.searchParams.set("limit", "50");
   url.searchParams.set("sort", "new");
   const res = await fetch(url.toString(), {
-    headers: { authorization: `Bearer ${accessToken}`, "user-agent": "socmed:v1.0" },
+    headers: { authorization: `Bearer ${accessToken}`, "user-agent": USER_AGENT },
   });
   if (!res.ok) return [];
   const j = (await res.json()) as [unknown, { data: { children: Array<{ data: { id: string; author: string; body: string; created_utc: number } }> } }];
@@ -146,7 +153,7 @@ export async function redditReply(
   const body = new URLSearchParams({ parent_id: parentFullname, text });
   const res = await fetch(`${API}/api/comment`, {
     method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "socmed:v1.0" },
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/x-www-form-urlencoded", "user-agent": USER_AGENT },
     body,
   });
   if (!res.ok) throw new Error(`Reddit reply: ${res.status} ${await res.text()}`);
@@ -155,5 +162,8 @@ export async function redditReply(
   return { id: j.json.data.id };
 }
 
-export function redditVerifyWebhookSignature(_raw: string, _headers: Record<string, string>): boolean { return true; }
+export function redditVerifyWebhookSignature(raw: string, headers: Record<string, string>): boolean {
+  const secret = process.env.REDDIT_CLIENT_SECRET ?? "";
+  return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-reddit-signature"] ?? headers["signature"]);
+}
 export function redditParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }

@@ -1,6 +1,6 @@
 import { getAdapter } from "@platforms/registry";
 import "@platforms/bootstrap";
-import { decryptJson, unpack } from "@platforms/crypto";
+import { decryptAccountCreds } from "@platforms/creds";
 import { db, sqlite } from "@db/client";
 import { comments, mentions, engagementActions, accounts, posts, type Post } from "@db/schema";
 import { eq } from "drizzle-orm";
@@ -94,9 +94,4 @@ export async function handlePostComment(payload: PostCommentPayload): Promise<vo
     sqlite.prepare(`UPDATE engagement_actions SET status = 'failed', error = ? WHERE id = ?`).run(msg, engagementActionId);
     fail(engagementActionId, msg);
   }
-}
-
-function decryptAccountCreds(account: typeof accounts.$inferSelect): Record<string, unknown> {
-  const ct = unpack(account.encryptedCreds, account.credsIv, account.credsTag);
-  return decryptJson<Record<string, unknown>>(account.id, ct);
 }

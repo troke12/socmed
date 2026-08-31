@@ -1,5 +1,6 @@
 import { claimNext } from "./db";
 import { handleJob } from "./db";
+import { fail } from "./db";
 
 const POLL_MS = 5_000;
 
@@ -7,7 +8,7 @@ let running = false;
 let currentJobId: number | null = null;
 
 function log(msg: string): void {
-  // eslint-disable-next-line no-console
+   
   console.log(`[${new Date().toISOString()}] [scheduler] ${msg}`);
 }
 
@@ -24,10 +25,10 @@ async function tick(): Promise<void> {
     log(`job ${job.id} ok`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log(`job ${job.id} error: ${msg}`);
+    const stack = err instanceof Error ? err.stack ?? "" : "";
+    log(`job ${job.id} error: ${msg}\n${stack}`);
     // handler is responsible for marking complete/fail; if it threw, mark failed
     try {
-      const { fail } = await import("./db");
       fail(job.id, msg);
     } catch (e) {
       log(`failed to record error: ${e instanceof Error ? e.message : String(e)}`);

@@ -17,7 +17,8 @@ export interface EncryptedCreds {
   raw?: Record<string, unknown>;
 }
 
-export interface DecryptedCreds extends EncryptedCreds {}
+// Decrypted creds are structurally identical to encrypted ones.
+export type DecryptedCreds = EncryptedCreds;
 
 export interface PublishInput {
   postId: number;

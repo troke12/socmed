@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult } from "../types";
+import type { PlatformAdapter, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
 import {
   threadsBeginOAuth,
@@ -10,7 +10,6 @@ import {
   threadsPublishImage,
   threadsPublishText,
   threadsRefreshToken,
-  threadsReplyToThread,
   threadsVerifyWebhookSignature,
 } from "./client";
 

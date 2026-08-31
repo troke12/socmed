@@ -20,7 +20,6 @@ function safePragma(p: string): void {
     } catch (err) {
       if (attempt === 4) throw err;
       const waitMs = 100 * (attempt + 1);
-      // eslint-disable-next-line no-console
       console.warn(`[db] pragma ${p} busy, retrying in ${waitMs}ms...`);
       const now = Date.now();
       while (Date.now() - now < waitMs) {

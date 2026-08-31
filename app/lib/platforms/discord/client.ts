@@ -13,8 +13,8 @@
 // Mentions/comments: via gateway or fetch /channels/{id}/messages; webhooks aren't useful for
 // bots, so we poll (M5 worker poller reads recent messages, inserts as "mentions" rows).
 
-import { Buffer } from "node:buffer";
 import type { EncryptedCreds } from "../types";
+import { verifyHmacHeader } from "../../security/webhook";
 
 const API = "https://discord.com/api/v10";
 
@@ -181,13 +181,13 @@ export async function discordGetBotUserId(botToken: string): Promise<string> {
   return j.id;
 }
 
-// Webhooks: Discord uses Ed25519 signatures. Verification is done in the route handler.
-// We use the interaction endpoint URL pattern. Out of scope for v1 — poller handles inbound.
-export function discordVerifySignature(_raw: string, _headers: Record<string, string>): boolean {
-  return true;
+// Webhooks: Discord signs interaction bodies with Ed25519, but socmed does
+// not use interaction endpoints — inbound Discord is handled by the poller.
+// For any HMAC-signed webhook we still verify when a secret is configured.
+export function discordVerifySignature(raw: string, headers: Record<string, string>): boolean {
+  const secret = process.env.DISCORD_WEBHOOK_SECRET ?? "";
+  return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-discord-signature"] ?? headers["signature"]);
 }
 export function discordParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } {
   return {};
 }
-
-void Buffer; // silence unused

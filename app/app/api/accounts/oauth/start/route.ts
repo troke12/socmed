@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/require";
 import { getAdapter } from "@platforms/registry";
 import "@platforms/bootstrap";
 import { mastodonBeginOAuth } from "@platforms/mastodon/client";
+import { assertSafeOutboundUrl } from "@/lib/security/url";
 
 export const runtime = "nodejs";
 
@@ -13,17 +14,23 @@ const Body = z.object({
     "facebook", "threads", "youtube", "pinterest", "reddit",
     "mastodon", "bluesky", "discord",
   ]),
-  // Optional for OAuth platforms — label is auto-generated. Mastodon uses
-  // instanceUrl instead. Bluesky/Discord don't use this route.
   handle: z.string().max(64).optional(),
   label: z.string().max(64).optional(),
   displayName: z.string().max(128).optional(),
-  // For Mastodon: required (instance URL).
   instanceUrl: z.string().url().optional(),
+  redirect: z.string().max(512).optional(),
 });
 
-export async function POST(req: Request) {
-  try { requireSession(); } catch (e) {
+// Only allow redirects back into the app itself (blocks open redirects).
+function safeRedirect(raw: string | undefined): string {
+  if (!raw) return "/accounts";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/accounts";
+  if (raw.includes("\\") || raw.includes("..")) return "/accounts";
+  return raw;
+}
+
+export async function POST(req: NextRequest) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   const body = await req.json().catch(() => null);
@@ -46,6 +53,12 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
+      // SSRF guard: only public https hosts, no loopback/private ranges.
+      try {
+        assertSafeOutboundUrl(instanceUrl, "Mastodon instance URL");
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      }
       const oauth = await mastodonBeginOAuth(instanceUrl);
       authUrl = oauth.authUrl;
       state = oauth.state;
@@ -63,10 +76,19 @@ export async function POST(req: Request) {
     }
 
     const res = NextResponse.json({ authUrl });
+    const secure = process.env.NODE_ENV === "production" || process.env.SOCMED_COOKIE_SECURE === "true";
     res.cookies.set(
       "oauth_state",
-      JSON.stringify({ platform, handle: handle ?? "", label, displayName, instanceUrl, state }),
-      { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 },
+      JSON.stringify({
+        platform,
+        handle: handle ?? "",
+        label,
+        displayName,
+        instanceUrl,
+        state,
+        redirect: safeRedirect(parsed.data.redirect),
+      }),
+      { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 600 },
     );
     return res;
   } catch (e) {

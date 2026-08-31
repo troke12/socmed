@@ -9,7 +9,7 @@ import { totalsFor, type Snapshot } from "@/lib/analytics/aggregate";
 export const runtime = "nodejs";
 
 export async function GET() {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   await runMigrations();

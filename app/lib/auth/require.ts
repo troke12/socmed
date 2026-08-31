@@ -2,8 +2,9 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE_NAME, parseSessionCookie } from "./session";
 import type { SessionPayload } from "./session";
 
-export function requireSession(): SessionPayload {
-  const cookie = cookies().get(SESSION_COOKIE_NAME)?.value;
+// Next.js 15+: cookies() is async.
+export async function requireSession(): Promise<SessionPayload> {
+  const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   const session = parseSessionCookie(cookie);
   if (!session) {
     const err = new Error("unauthorized") as Error & { status?: number };
@@ -13,7 +14,7 @@ export function requireSession(): SessionPayload {
   return session;
 }
 
-export function trySession(): SessionPayload | null {
-  const cookie = cookies().get(SESSION_COOKIE_NAME)?.value;
+export async function trySession(): Promise<SessionPayload | null> {
+  const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   return parseSessionCookie(cookie);
 }

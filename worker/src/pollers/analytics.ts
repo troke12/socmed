@@ -11,7 +11,7 @@ const STALE_AFTER_SEC = 60 * 60; // 1 hour
 let handle: ReturnType<typeof setInterval> | null = null;
 
 function log(msg: string): void {
-  // eslint-disable-next-line no-console
+   
   console.log(`[${new Date().toISOString()}] [analytics] ${msg}`);
 }
 

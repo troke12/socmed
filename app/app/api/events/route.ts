@@ -6,14 +6,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try { requireSession(); } catch (e) {
+  try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
       const send = (event: string, data: unknown): void => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // Stream closed — cleanup handled by cancel below.
+        }
       };
       send("hello", { ok: true, at: Math.floor(Date.now() / 1000) });
       const tick = setInterval(() => {
@@ -37,7 +41,18 @@ export async function GET() {
         try { controller.close(); } catch { /* noop */ }
       };
       // Close after 1 hour to avoid runaway connections; client should reconnect.
-      setTimeout(close, 60 * 60 * 1000);
+      const timeout = setTimeout(close, 60 * 60 * 1000);
+      // Cleanup when the client disconnects — no leaked intervals.
+      const cancel = () => {
+        clearInterval(tick);
+        clearTimeout(timeout);
+      };
+      // ReadableStream cancel handler support
+      (controller as unknown as { _cancel?: () => void })._cancel = cancel;
+      stream.cancel = () => {
+        cancel();
+        return Promise.resolve();
+      };
     },
   });
   return new NextResponse(stream, {
@@ -45,6 +60,7 @@ export async function GET() {
       "content-type": "text/event-stream",
       "cache-control": "no-cache, no-transform",
       "connection": "keep-alive",
+      "x-accel-buffering": "no",
     },
   });
 }
