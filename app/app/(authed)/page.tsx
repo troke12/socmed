@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { SESSION_COOKIE_NAME, parseSessionCookie } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Users,
@@ -14,9 +11,6 @@ import {
 } from "lucide-react";
 
 export default function HomePage() {
-  const session = parseSessionCookie(cookies().get(SESSION_COOKIE_NAME)?.value);
-  if (!session) redirect("/login");
-
   const cards = [
     { href: "/setup", title: "Setup Wizard", desc: "Check env vars, generate keys, get started", icon: LayoutGrid },
     { href: "/accounts", title: "Connect accounts", desc: "12 platforms — OAuth or bot tokens", icon: Users },
@@ -29,8 +23,8 @@ export default function HomePage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Welcome to socmed</h1>
-        <p className="mt-1 text-muted-foreground">
+        <h1 className="text-2xl font-semibold">Welcome to socmed</h1>
+        <p className="text-sm text-muted-foreground">
           Draft, schedule, publish, and engage across 12 social platforms from one place.
         </p>
       </div>
