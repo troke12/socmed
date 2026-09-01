@@ -14,6 +14,7 @@ import { handleFirstComment, type FirstCommentPayload } from "./first-comment";
 import { nextCronRun } from "@/lib/schedule/cron";
 import { applyUtm, utmDefaults, utmSourceFor } from "@/lib/links/utm";
 import { createShortLink } from "@/lib/links/shorten";
+import { notify } from "@/lib/notify";
 
 interface PublishPayload {
   postId: number;
@@ -139,6 +140,22 @@ export async function handlePublishPost(payload: PublishPayload, jobId: number):
     sqlite
       .prepare(`UPDATE posts SET status='failed', error=?, updated_at=? WHERE id=?`)
       .run(msg, Math.floor(Date.now() / 1000), postId);
+
+    // Alert only on the final attempt. Notifying on every retry would send five
+    // messages for one post and train the operator to ignore them; this
+    // mirrors the dead-letter condition in claim.ts.
+    const row = sqlite.prepare(`SELECT attempts, max_attempts FROM jobs WHERE id = ?`).get(jobId) as
+      | { attempts: number; max_attempts: number }
+      | undefined;
+    if (row && row.attempts >= row.max_attempts) {
+      await notify({
+        event: "publish_failed",
+        title: `Publish failed on ${account.platform} (${account.label})`,
+        body: `Post #${postId} gave up after ${row.attempts} attempts.\n\n${msg}`,
+        path: `/compose?id=${postId}`,
+        data: { postId, accountId: account.id, platform: account.platform, error: msg, attempts: row.attempts },
+      });
+    }
     fail(jobId, msg);
   }
 }
