@@ -24,7 +24,8 @@
     "../app/lib/db/**/*.ts",
     "../app/lib/queue/**/*.ts",
     "../app/lib/platforms/**/*.ts",
-    "../app/lib/schedule/**/*.ts"
+    "../app/lib/schedule/**/*.ts",
+    "../app/lib/links/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
