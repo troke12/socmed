@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 vi.mock("@/lib/auth/require", () => ({
-  requireSession: async () => ({ userId: 1, username: "admin" }),
-  trySession: async () => ({ userId: 1, username: "admin" }),
+  requireSession: async () => ({ id: 1, username: "admin", role: "admin" }),
+  requireRole: async () => ({ id: 1, username: "admin", role: "admin" }),
+  trySession: async () => ({ id: 1, username: "admin", role: "admin" }),
 }));
 
 let dbDir: string;

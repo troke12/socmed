@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { comments, mentions, engagementActions, accounts } from "@db/schema";
-import { requireSession } from "@/lib/auth/require";
+import { requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { enqueue } from "@/lib/queue/enqueue";
 
 export const runtime = "nodejs";
@@ -16,9 +17,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("editor"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
   const raw = await req.json().catch(() => null);
   const parsed = Body.safeParse(raw);

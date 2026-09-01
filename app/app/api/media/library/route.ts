@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { sqlite } from "@db/client";
 import { runMigrations } from "@db/migrate";
-import { requireSession } from "@/lib/auth/require";
+import { requireSession, requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 
 export const runtime = "nodejs";
 
@@ -61,9 +62,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("editor"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
 
   const raw = (await req.json().catch(() => null)) as Record<string, unknown> | null;

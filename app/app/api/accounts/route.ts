@@ -7,16 +7,21 @@ import { runMigrations } from "@db/migrate";
 import { accounts } from "@db/schema";
 import { encryptJson, pack } from "@platforms/crypto";
 import { CreateAccountBody } from "@/lib/validators/account";
-import { requireSession } from "@/lib/auth/require";
+import { requireSession, requireRole } from "@/lib/auth/require";
 
 export const runtime = "nodejs";
 
-function unauth(e: Error): NextResponse {
-  return NextResponse.json({ error: e.message || "unauthorized" }, { status: 401 });
+function unauth(e: unknown): NextResponse {
+  // requireRole throws 403, requireSession 401 — a viewer hitting a write route
+  // is authenticated, just not allowed, and the two must not be conflated.
+  return NextResponse.json(
+    { error: (e as Error).message || "unauthorized" },
+    { status: (e as { status?: number }).status ?? 401 },
+  );
 }
 
 export async function GET() {
-  try { await requireSession(); } catch (e) { return unauth(e as Error); }
+  try { await requireSession(); } catch (e) { return unauth(e); }
   await runMigrations();
   const rows = db
     .select({
@@ -37,7 +42,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  try { await requireSession(); } catch (e) { return unauth(e as Error); }
+  // Connecting or removing an account writes platform credentials, so it is
+  // admin-only regardless of who can compose.
+  try { await requireRole("admin"); } catch (e) { return unauth(e); }
   await runMigrations();
   const raw = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object") {

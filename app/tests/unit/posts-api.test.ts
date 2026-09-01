@@ -7,8 +7,9 @@ import { join } from "node:path";
 // that does not exist under vitest. Stubbing the guard keeps these tests aimed
 // at the post-creation logic rather than at auth, which auth.test.ts covers.
 vi.mock("@/lib/auth/require", () => ({
-  requireSession: async () => ({ userId: 1, username: "admin" }),
-  trySession: async () => ({ userId: 1, username: "admin" }),
+  requireSession: async () => ({ id: 1, username: "admin", role: "admin" }),
+  requireRole: async () => ({ id: 1, username: "admin", role: "admin" }),
+  trySession: async () => ({ id: 1, username: "admin", role: "admin" }),
 }));
 
 let dbDir: string;
