@@ -7,6 +7,7 @@ import { accounts } from "../../../app/lib/db/schema";
 import { getAdapter } from "../../../app/lib/platforms/registry";
 import "../../../app/lib/platforms/bootstrap";
 import { decryptAccountCreds } from "../../../app/lib/platforms/creds";
+import { notify } from "../../../app/lib/notify";
 
 const POLL_MS = 10 * 60 * 1000; // 10 min
 const LOOKBACK_SEC = 24 * 60 * 60; // 24h
@@ -21,7 +22,11 @@ async function tick(): Promise<void> {
   const since = now - LOOKBACK_SEC;
   const active = db.select().from(accounts).where(eq(accounts.status, "active")).all();
   let totalNew = 0;
+  // Collected per account so the notification can say where the mentions came
+  // from instead of just giving a bare count.
+  const newByAccount: { label: string; platform: string; count: number }[] = [];
   for (const acc of active) {
+    let accountNew = 0;
     try {
       const creds = decryptAccountCreds(acc);
       const adapter = getAdapter(acc.platform);
@@ -47,8 +52,12 @@ async function tick(): Promise<void> {
           m ? JSON.stringify(m) : null,
           now,
         );
-        if (insert.changes > 0) totalNew++;
+        if (insert.changes > 0) {
+          totalNew++;
+          accountNew++;
+        }
       }
+      if (accountNew > 0) newByAccount.push({ label: acc.label, platform: acc.platform, count: accountNew });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // Keep going — one bad account (corrupt creds, revoked token) must not
@@ -56,7 +65,18 @@ async function tick(): Promise<void> {
       log(`${acc.platform}/${acc.label}: fetch failed — ${msg}${e instanceof Error ? `\n${e.stack ?? ""}` : ""}`);
     }
   }
-  if (totalNew > 0) log(`inserted ${totalNew} new mentions`);
+  if (totalNew > 0) {
+    log(`inserted ${totalNew} new mentions`);
+    // One message per tick, not per mention: a burst of forty replies should
+    // be one alert saying forty, not forty alerts.
+    await notify({
+      event: "new_mentions",
+      title: `${totalNew} new mention${totalNew === 1 ? "" : "s"}`,
+      body: newByAccount.map((a) => `${a.count} on ${a.platform} (${a.label})`).join("\n"),
+      path: "/inbox",
+      data: { total: totalNew, accounts: newByAccount },
+    });
+  }
 }
 
 export function startMentionsPoller(): void {

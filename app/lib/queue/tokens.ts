@@ -7,6 +7,7 @@ import { RefreshUnsupportedError, type DecryptedCreds, type EncryptedCreds } fro
 import { eq } from "drizzle-orm";
 import { complete, fail } from "./claim";
 import { enqueue } from "./enqueue";
+import { notify } from "@/lib/notify";
 
 export interface RefreshTokenPayload {
   accountId: number;
@@ -17,8 +18,15 @@ export interface RefreshTokenPayload {
 // since claim.ts backs off 5m/30m/2h/6h/24h between retries.
 export const REFRESH_LEAD_SEC = 24 * 60 * 60;
 
-function markExpired(accountId: number): void {
-  sqlite.prepare(`UPDATE accounts SET status = 'expired' WHERE id = ?`).run(accountId);
+async function markExpired(account: { id: number; platform: string; label: string }, reason: string): Promise<void> {
+  sqlite.prepare(`UPDATE accounts SET status = 'expired' WHERE id = ?`).run(account.id);
+  await notify({
+    event: "account_expired",
+    title: `${account.platform} account "${account.label}" needs re-authorising`,
+    body: `Token refresh failed and the account is now marked expired. Publishing to it will fail until it is reconnected.\n\n${reason}`,
+    path: "/accounts",
+    data: { accountId: account.id, platform: account.platform, label: account.label, reason },
+  });
 }
 
 export async function handleRefreshToken(payload: RefreshTokenPayload, jobId: number): Promise<void> {
@@ -53,7 +61,7 @@ export async function handleRefreshToken(payload: RefreshTokenPayload, jobId: nu
     if (err instanceof RefreshUnsupportedError) {
       // The platform has no refresh grant; the account really does need manual
       // re-auth. Flag it now and close the job — retrying is pure waste.
-      markExpired(accountId);
+      await markExpired(account, msg);
       complete(jobId);
       return;
     }
@@ -64,7 +72,7 @@ export async function handleRefreshToken(payload: RefreshTokenPayload, jobId: nu
     const row = sqlite.prepare(`SELECT attempts, max_attempts FROM jobs WHERE id = ?`).get(jobId) as
       | { attempts: number; max_attempts: number }
       | undefined;
-    if (row && row.attempts >= row.max_attempts) markExpired(accountId);
+    if (row && row.attempts >= row.max_attempts) await markExpired(account, msg);
     fail(jobId, `refresh_token: ${msg}`);
   }
 }

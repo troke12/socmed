@@ -25,7 +25,8 @@
     "../app/lib/queue/**/*.ts",
     "../app/lib/platforms/**/*.ts",
     "../app/lib/schedule/**/*.ts",
-    "../app/lib/links/**/*.ts"
+    "../app/lib/links/**/*.ts",
+    "../app/lib/notify/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
