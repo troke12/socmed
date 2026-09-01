@@ -10,6 +10,7 @@ import {
   linkedinRefresh,
   linkedinVerifyWebhookSignature,
 } from "./client";
+import { unsupportedCommentReply } from "../capabilities";
 
 export const linkedinAdapter: PlatformAdapter = {
   platform: "linkedin",
@@ -38,7 +39,11 @@ export const linkedinAdapter: PlatformAdapter = {
   },
   async fetchMentions() { return { mentions: [] }; },
   async fetchComments(): Promise<Comment[]> { return []; },
-  async postCommentReply() { return { platformCommentId: "" }; },
+  async postCommentReply() {
+    // Returned a fake success before, which marked replies as sent that were
+    // never delivered. See #32.
+    return unsupportedCommentReply("linkedin");
+  },
   async likeTarget() { /* noop */ },
   verifyWebhookSignature: linkedinVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {
