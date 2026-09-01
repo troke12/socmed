@@ -3,11 +3,11 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@db/client";
 import { runMigrations } from "@db/migrate";
-import { posts, postMedia, accounts } from "@db/schema";
+import { posts, postMedia, accounts, mediaAssets } from "@db/schema";
 import { requireSession } from "@/lib/auth/require";
 import { CreatePostBody } from "@/lib/validators/post";
 import { UpdatePostBody } from "@/lib/validators/post";
-import { enqueue } from "@/lib/queue/enqueue";
+import { enqueue, cancelPendingPublish } from "@/lib/queue/enqueue";
 
 export const runtime = "nodejs";
 
@@ -16,11 +16,41 @@ async function readJson(req: Request): Promise<unknown> {
   return req.json().catch(() => null);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try { await requireSession(); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   await runMigrations();
+
+  // ?id=N returns a single post with its media attached, which is what Compose
+  // needs to reopen a draft. The list form deliberately omits media — it feeds
+  // the calendar, where per-post media would mean an N+1 query per month view.
+  const idParam = new URL(req.url).searchParams.get("id");
+  if (idParam !== null) {
+    const id = Number(idParam);
+    if (!Number.isInteger(id) || id <= 0) {
+      return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    }
+    const post = db.select().from(posts).where(eq(posts.id, id)).get();
+    if (!post) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const media = db
+      .select({
+        id: mediaAssets.id,
+        path: mediaAssets.path,
+        kind: mediaAssets.kind,
+        mime: mediaAssets.mime,
+        width: mediaAssets.width,
+        height: mediaAssets.height,
+        position: postMedia.position,
+      })
+      .from(postMedia)
+      .innerJoin(mediaAssets, eq(postMedia.mediaId, mediaAssets.id))
+      .where(eq(postMedia.postId, id))
+      .orderBy(postMedia.position)
+      .all();
+    return NextResponse.json({ post, media });
+  }
+
   const rows = db
     .select({
       id: posts.id,
@@ -128,6 +158,10 @@ export async function POST(req: Request) {
     if (parsed.data.scheduledFor !== undefined) {
       const now = Math.floor(Date.now() / 1000);
       const sched = parsed.data.scheduledFor;
+      // Always clear the old job first. Without this, editing a scheduled post
+      // twice leaves two pending publish jobs and the post goes out twice —
+      // and moving a post back to draft would still publish at the old time.
+      cancelPendingPublish(id);
       if (sched && sched > now) {
         updates.scheduledFor = sched;
         updates.status = "scheduled";
@@ -164,6 +198,9 @@ export async function POST(req: Request) {
       })
       .where(eq(posts.id, id))
       .run();
+    // A post being published now may still carry a pending job from an earlier
+    // schedule; that one would fire again later.
+    cancelPendingPublish(id);
     enqueue("publish_post", { postId: id });
     return NextResponse.json({ ok: true, queued: true });
   }

@@ -25,3 +25,19 @@ export function enqueue(
   if (!row) throw new Error("enqueue: failed to insert job");
   return row.id;
 }
+
+/**
+ * Drops still-pending publish jobs for a post. Returns how many were removed.
+ *
+ * Rescheduling or publishing a post must not leave the previous job queued, or
+ * the post goes out twice. The rows are deleted rather than marked done/dead:
+ * the jobs status enum has no "cancelled", and reusing either of those would
+ * skew the queue counters on /api/health. A job already claimed ('running') is
+ * left alone — that publish is in flight and cannot be recalled here.
+ */
+export function cancelPendingPublish(postId: number): number {
+  const info = sqlite
+    .prepare(`DELETE FROM jobs WHERE kind = 'publish_post' AND status = 'pending' AND payload = ?`)
+    .run(JSON.stringify({ postId }));
+  return info.changes;
+}

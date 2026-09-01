@@ -25,6 +25,7 @@ beforeAll(async () => {
   await import("@/lib/queue/handlers");
   await import("@/lib/queue/tokens");
   await import("@/lib/schedule/rules");
+  await import("@/lib/queue/enqueue");
 }, 120_000);
 
 afterAll(() => {
@@ -352,5 +353,52 @@ describe("due-work selection", () => {
       .prepare(`SELECT COUNT(*) as n FROM jobs WHERE kind = 'schedule_rule' AND payload = ?`)
       .get(JSON.stringify({ ruleId: 700 })) as { n: number };
     expect(jobs.n).toBe(1);
+  });
+});
+
+describe("cancelPendingPublish", () => {
+  it("removes only this post's pending publish jobs", async () => {
+    const { sqlite } = await import("@db/client");
+    const { enqueue, cancelPendingPublish } = await import("@/lib/queue/enqueue");
+
+    const now = Math.floor(Date.now() / 1000);
+    const first = enqueue("publish_post", { postId: 42 }, { runAt: now + 3600 });
+    enqueue("publish_post", { postId: 42 }, { runAt: now + 7200 });
+    const otherPost = enqueue("publish_post", { postId: 43 }, { runAt: now + 3600 });
+    const otherKind = enqueue("fetch_metrics", { postId: 42 }, { runAt: now + 3600 });
+    // A claimed job is already executing and cannot be recalled.
+    const inFlight = enqueue("publish_post", { postId: 42 }, { runAt: now });
+    sqlite.prepare(`UPDATE jobs SET status = 'running' WHERE id = ?`).run(inFlight);
+
+    expect(cancelPendingPublish(42)).toBe(2);
+
+    const survivors = sqlite
+      .prepare(`SELECT id FROM jobs WHERE id IN (?, ?, ?, ?)`)
+      .all(first, otherPost, otherKind, inFlight) as { id: number }[];
+    expect(survivors.map((r) => r.id).sort((a, b) => a - b)).toEqual(
+      [otherPost, otherKind, inFlight].sort((a, b) => a - b),
+    );
+  });
+
+  it("leaves exactly one pending job after a post is rescheduled twice", async () => {
+    const { sqlite } = await import("@db/client");
+    const { enqueue, cancelPendingPublish } = await import("@/lib/queue/enqueue");
+
+    const now = Math.floor(Date.now() / 1000);
+    // Mirrors the /api/posts update branch: cancel, then re-enqueue.
+    enqueue("publish_post", { postId: 44 }, { runAt: now + 3600 });
+    cancelPendingPublish(44);
+    enqueue("publish_post", { postId: 44 }, { runAt: now + 7200 });
+    cancelPendingPublish(44);
+    const final = enqueue("publish_post", { postId: 44 }, { runAt: now + 10800 });
+
+    const pending = sqlite
+      .prepare(`SELECT id, run_at FROM jobs WHERE kind = 'publish_post' AND status = 'pending' AND payload = ?`)
+      .all(JSON.stringify({ postId: 44 })) as { id: number; run_at: number }[];
+    // Without the cancel this would be three jobs, and the post would publish
+    // three times.
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.id).toBe(final);
+    expect(pending[0]!.run_at).toBe(now + 10800);
   });
 });

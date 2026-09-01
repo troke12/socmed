@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,14 @@ interface Account {
   status: "active" | "revoked" | "expired";
 }
 
+// datetime-local wants local wall-clock fields, so toISOString() (always UTC)
+// would shift a stored schedule by the viewer's offset.
+function toLocalInput(ts: number): string {
+  const d = new Date(ts * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 interface MediaItem {
   id: number;
   path: string;
@@ -37,7 +46,12 @@ interface MediaItem {
 }
 
 export function ComposeView() {
+  const searchParams = useSearchParams();
+  const editId = Number(searchParams.get("id")) || null;
+
   const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [postId, setPostId] = useState<number | null>(null);
+  const [loadingPost, setLoadingPost] = useState(false);
   const [accountId, setAccountId] = useState<number | null>(null);
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
@@ -60,6 +74,46 @@ export function ComposeView() {
   }, [accountId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!editId) return;
+    let cancelled = false;
+    setLoadingPost(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/posts?id=${editId}`);
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!cancelled) setError(j.error ?? "could not load post");
+          return;
+        }
+        const j = (await res.json()) as {
+          post: {
+            id: number; accountId: number; status: string; caption: string;
+            hashtags: string; linkUrl: string | null; scheduledFor: number | null;
+          };
+          media: MediaItem[];
+        };
+        if (cancelled) return;
+        // A published post is immutable server-side (/api/posts returns 409), so
+        // load it read-only rather than letting someone edit into a dead end.
+        if (j.post.status === "published") {
+          setError("This post is already published and can no longer be edited.");
+          return;
+        }
+        setPostId(j.post.id);
+        setAccountId(j.post.accountId);
+        setCaption(j.post.caption);
+        setHashtags(j.post.hashtags);
+        setLinkUrl(j.post.linkUrl ?? "");
+        setMedia(j.media);
+        setScheduledFor(j.post.scheduledFor ? toLocalInput(j.post.scheduledFor) : "");
+      } finally {
+        if (!cancelled) setLoadingPost(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editId]);
 
   const kind = media.length === 0 ? "text" : media.length > 1 ? "carousel" : media[0]!.kind === "image" ? "image" : "video";
   const selectedPlatform = accounts?.find((a) => a.id === accountId)?.platform as PlatformId | undefined;
@@ -107,30 +161,37 @@ export function ComposeView() {
     setBusy(true); setError(null); setInfo(null);
     try {
       const scheduledTs = scheduledFor ? Math.floor(new Date(scheduledFor).getTime() / 1000) : null;
+      const fields = {
+        accountId,
+        kind,
+        caption,
+        hashtags,
+        linkUrl: linkUrl || null,
+        mediaIds: media.map((m) => m.id),
+        scheduledFor: action === "schedule" ? scheduledTs : null,
+      };
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          accountId,
-          kind,
-          caption,
-          hashtags,
-          linkUrl: linkUrl || null,
-          mediaIds: media.map((m) => m.id),
-          scheduledFor: action === "schedule" ? scheduledTs : null,
-        }),
+        body: JSON.stringify(postId ? { action: "update", id: postId, ...fields } : fields),
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(j.error ?? "create failed");
+        setError(j.error ?? (postId ? "update failed" : "create failed"));
         return;
       }
-      const j = (await res.json()) as { id: number; status: string };
+      // Create returns the new id; update only returns { ok: true }.
+      const j = (await res.json()) as { id?: number };
+      const savedId = postId ?? j.id;
+      if (savedId === undefined) {
+        setError("server did not return a post id");
+        return;
+      }
       if (action === "publish") {
         const pub = await fetch("/api/posts", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "publish_now", id: j.id }),
+          body: JSON.stringify({ action: "publish_now", id: savedId }),
         });
         if (!pub.ok) {
           const jj = (await pub.json().catch(() => ({}))) as { error?: string };
@@ -139,17 +200,21 @@ export function ComposeView() {
         }
         setInfo("Post queued for publishing ✓");
       } else if (action === "schedule") {
-        setInfo("Post scheduled ✓");
+        setInfo(postId ? "Schedule updated ✓" : "Post scheduled ✓");
       } else {
-        setInfo("Draft saved ✓");
+        setInfo(postId ? "Changes saved ✓" : "Draft saved ✓");
       }
-      setCaption(""); setHashtags(""); setLinkUrl(""); setMedia([]); setScheduledFor("");
+      // Clearing is right after creating a post, but destructive when editing —
+      // the fields still reflect the row that was just saved.
+      if (!postId) {
+        setCaption(""); setHashtags(""); setLinkUrl(""); setMedia([]); setScheduledFor("");
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  if (accounts === null) return <p className="text-sm text-muted-foreground">Loading...</p>;
+  if (accounts === null || loadingPost) return <p className="text-sm text-muted-foreground">Loading...</p>;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -157,8 +222,15 @@ export function ComposeView() {
       <div className="space-y-4 lg:col-span-3">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">New post</CardTitle>
-            <CardDescription>Write once, publish to any connected platform.</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-base">
+              {postId ? <Pencil className="h-4 w-4" /> : null}
+              {postId ? `Edit post #${postId}` : "New post"}
+            </CardTitle>
+            <CardDescription>
+              {postId
+                ? "Changes replace the saved draft — the schedule is re-queued if you change it."
+                : "Write once, publish to any connected platform."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -246,7 +318,7 @@ export function ComposeView() {
 
             <div className="flex flex-wrap gap-2 pt-2">
               <Button variant="outline" size="sm" disabled={busy} onClick={() => void onSubmit("draft")}>
-                <Save className="h-4 w-4" /> Save draft
+                <Save className="h-4 w-4" /> {postId ? "Save changes" : "Save draft"}
               </Button>
               <Button variant="outline" size="sm" disabled={busy || !scheduledFor} onClick={() => void onSubmit("schedule")}>
                 <CalendarClock className="h-4 w-4" /> Schedule
