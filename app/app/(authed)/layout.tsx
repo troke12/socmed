@@ -9,6 +9,7 @@ import {
   CalendarDays,
   BarChart3,
   Inbox,
+  Repeat,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/accounts", label: "Accounts", icon: Users },
   { href: "/compose", label: "Compose", icon: PenSquare },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/schedules", label: "Schedules", icon: Repeat },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/inbox", label: "Inbox", icon: Inbox },
 ];
