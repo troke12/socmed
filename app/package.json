@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "@fortawesome/fontawesome-svg-core": "7.3.1",
     "@fortawesome/free-brands-svg-icons": "7.3.1",
     "@fortawesome/react-fontawesome": "3.5.0",
