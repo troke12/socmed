@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-export const CreatePostBody = z.object({
-  accountId: z.number().int().positive(),
+const PostFields = z.object({
   kind: z.enum(["text", "image", "video", "carousel", "link"]),
   caption: z.string().max(5000).default(""),
   hashtags: z.string().max(2000).default(""),
@@ -10,7 +9,21 @@ export const CreatePostBody = z.object({
   scheduledFor: z.number().int().positive().optional().nullable(),
 });
 
-export const UpdatePostBody = CreatePostBody.partial().extend({
+// accountId (single) and accountIds (fan-out) are both accepted. accountId is
+// kept so existing callers and the update action keep working unchanged; the
+// create route normalises the two into one list.
+const PostTargets = PostFields.extend({
+  accountId: z.number().int().positive().optional(),
+  accountIds: z.array(z.number().int().positive()).min(1).max(20).optional(),
+});
+
+export const CreatePostBody = PostTargets.refine(
+  (d) => d.accountId !== undefined || (d.accountIds?.length ?? 0) > 0,
+  { message: "one of accountId or accountIds is required", path: ["accountIds"] },
+);
+
+// .partial() is only available on the plain object, not on the refined schema.
+export const UpdatePostBody = PostTargets.partial().extend({
   status: z.enum(["draft", "scheduled", "archived"]).optional(),
 });
 
