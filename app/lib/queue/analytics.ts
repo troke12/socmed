@@ -10,16 +10,16 @@ interface FetchMetricsPayload {
   postId: number;
 }
 
-export async function handleFetchMetrics(payload: FetchMetricsPayload): Promise<void> {
+export async function handleFetchMetrics(payload: FetchMetricsPayload, jobId: number): Promise<void> {
   const { postId } = payload;
   const post = db.select().from(posts).where(eq(posts.id, postId)).get();
   if (!post || !post.platformPostId) {
-    fail(postId, `post ${postId} not published`);
+    fail(jobId, `post ${postId} not published`);
     return;
   }
   const account = db.select().from(accounts).where(eq(accounts.id, post.accountId)).get();
   if (!account) {
-    fail(postId, `account not found for post ${postId}`);
+    fail(jobId, `account not found for post ${postId}`);
     return;
   }
   const creds = decryptAccountCreds(account);
@@ -53,9 +53,9 @@ export async function handleFetchMetrics(payload: FetchMetricsPayload): Promise<
         snap.engagementRate,
         snap.raw ? JSON.stringify(snap.raw) : null,
       );
-    complete(postId);
+    complete(jobId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    fail(postId, `fetch_metrics: ${msg}`);
+    fail(jobId, `fetch_metrics: ${msg}`);
   }
 }
