@@ -9,6 +9,7 @@ import {
   youtubeParseWebhookEvent,
   youtubeRefresh,
   youtubeReplyToComment,
+  youtubeCommentOnVideo,
   youtubeUploadVideo,
   youtubeVerifyWebhookSignature,
 } from "./client";
@@ -53,6 +54,12 @@ export const youtubeAdapter: PlatformAdapter = {
   },
   async postCommentReply(id: string, text: string, token: string, _ctx): Promise<ReplyResult> {
     const r = await youtubeReplyToComment(id, text, token);
+    return { platformCommentId: r.id };
+  },
+  async postComment(platformPostId: string, text: string, token: string): Promise<ReplyResult> {
+    // Not youtubeReplyToComment: comments.insert needs a parent comment id and
+    // cannot open a new thread on a video.
+    const r = await youtubeCommentOnVideo(platformPostId, text, token);
     return { platformCommentId: r.id };
   },
   async likeTarget() { /* out of scope for v1 */ },

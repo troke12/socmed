@@ -61,6 +61,12 @@ export const facebookAdapter: PlatformAdapter = {
     const r = await facebookReplyToComment(id, text, token);
     return { platformCommentId: r.id };
   },
+  // Graph's /{object-id}/comments edge accepts a post id as readily as a
+  // comment id, so the same call serves both.
+  async postComment(platformPostId: string, text: string, token: string): Promise<ReplyResult> {
+    const r = await facebookReplyToComment(platformPostId, text, token);
+    return { platformCommentId: r.id };
+  },
   async likeTarget() { /* not exposed for pages here */ },
   verifyWebhookSignature: facebookVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {

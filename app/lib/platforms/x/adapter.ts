@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, WebhookEvent } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, WebhookEvent , ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
 import {
   xBeginOAuth,
@@ -11,7 +11,7 @@ import {
   xVerifyWebhookSignature,
   xUploadMedia,
 } from "./client";
-import { unsupportedCommentReply } from "../capabilities";
+import { xReplyToTweet } from "./client";
 
 export const xAdapter: PlatformAdapter = {
   platform: "x",
@@ -54,10 +54,15 @@ export const xAdapter: PlatformAdapter = {
   },
   async fetchMentions() { return { mentions: [] }; },
   async fetchComments(): Promise<Comment[]> { return []; },
-  async postCommentReply() {
-    // Returned a fake success before, which marked replies as sent that were
-    // never delivered. See #32.
-    return unsupportedCommentReply("x");
+  async postCommentReply(platformCommentId: string, text: string, accessToken: string): Promise<ReplyResult> {
+    // On X a comment is a post, so replying to a comment and commenting on a
+    // post are the same request with a different target id.
+    const r = await xReplyToTweet(platformCommentId, text, accessToken);
+    return { platformCommentId: r.id };
+  },
+  async postComment(platformPostId: string, text: string, accessToken: string): Promise<ReplyResult> {
+    const r = await xReplyToTweet(platformPostId, text, accessToken);
+    return { platformCommentId: r.id };
   },
   async likeTarget() { /* noop */ },
   verifyWebhookSignature: xVerifyWebhookSignature,

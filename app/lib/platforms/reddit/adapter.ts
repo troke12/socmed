@@ -47,6 +47,12 @@ export const redditAdapter: PlatformAdapter = {
     const r = await redditReply(id, text, token);
     return { platformCommentId: r.id };
   },
+  // Reddit's parent_id takes a fullname, and a post is stored as its t3_
+  // fullname, so the same call serves a top-level comment.
+  async postComment(platformPostId: string, text: string, token: string): Promise<ReplyResult> {
+    const r = await redditReply(platformPostId, text, token);
+    return { platformCommentId: r.id };
+  },
   async likeTarget() { /* noop */ },
   verifyWebhookSignature: redditVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {

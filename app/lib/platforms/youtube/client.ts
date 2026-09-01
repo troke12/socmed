@@ -377,6 +377,34 @@ export async function youtubeReplyToComment(
   return { id: j.id };
 }
 
+// A top-level comment is a commentThreads insert, not a comments insert:
+// comments.insert requires a parent *comment* id and cannot open a new thread.
+// Both videoId and channelId are mandatory on the snippet.
+// https://developers.google.com/youtube/v3/docs/commentThreads/insert
+export async function youtubeCommentOnVideo(
+  videoId: string,
+  text: string,
+  accessToken: string,
+): Promise<{ id: string }> {
+  const channel = await youtubeGetMyChannel(accessToken);
+  const url = new URL(`${API}/commentThreads`);
+  url.searchParams.set("part", "snippet");
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      snippet: {
+        videoId,
+        channelId: channel.id,
+        topLevelComment: { snippet: { textOriginal: text } },
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`YouTube comment: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as { id: string };
+  return { id: j.id };
+}
+
 export async function youtubeDeleteVideo(videoId: string, accessToken: string): Promise<void> {
   const res = await fetch(`${API}/videos?id=${encodeURIComponent(videoId)}`, {
     method: "DELETE",
