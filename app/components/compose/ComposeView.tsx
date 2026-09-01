@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil, Library, ClipboardCheck } from "lucide-react";
+import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil, Library, ClipboardCheck, Sparkles } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { MediaGrid, type LibraryItem } from "@/components/media/MediaGrid";
 import { nextOccurrence, WEEKDAY_NAMES, type Slot } from "@/lib/analytics/best-time";
 import { supportsFirstComment } from "@/lib/platforms/capabilities";
+import { TONES, type Tone, type Suggestion } from "@/lib/ai/shapes";
 
 interface Account {
   id: number;
@@ -65,6 +66,11 @@ export function ComposeView() {
   const [reviewStatus, setReviewStatus] = useState<"none" | "pending" | "approved" | "rejected">("none");
   const [reviewNote, setReviewNote] = useState<string | null>(null);
   const [bestTimes, setBestTimes] = useState<{ slots: Slot[]; sampleSize: number; confident: boolean } | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [tone, setTone] = useState<Tone>("keep");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -106,6 +112,14 @@ export function ComposeView() {
       setBestTimes((await res.json()) as { slots: Slot[]; sampleSize: number; confident: boolean });
     })();
   }, [accountIds]);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetch("/api/ai/suggest");
+      if (!res.ok) return;
+      setAiEnabled(((await res.json()) as { enabled: boolean }).enabled);
+    })();
+  }, []);
 
   useEffect(() => {
     if (!editId) return;
@@ -251,6 +265,30 @@ export function ComposeView() {
       setInfo("Submitted for review ✓");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onSuggest(): Promise<void> {
+    setAiBusy(true); setAiError(null); setSuggestion(null);
+    try {
+      const res = await fetch("/api/ai/suggest", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          caption,
+          hashtags,
+          linkUrl: linkUrl || null,
+          // Suggestions are written against the selected platforms' limits, so
+          // the target list has to travel with the request.
+          platforms: selectedPlatforms,
+          tone,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as Suggestion & { error?: string };
+      if (!res.ok) { setAiError(j.error ?? "suggestion failed"); return; }
+      setSuggestion(j);
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -442,6 +480,74 @@ export function ComposeView() {
                 className="resize-none"
               />
             </div>
+
+            {aiEnabled && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label className="mr-auto flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" /> Suggestions
+                  </Label>
+                  <select
+                    className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                    value={tone}
+                    onChange={(e) => setTone(e.target.value as Tone)}
+                  >
+                    {TONES.map((t) => (
+                      <option key={t} value={t}>{t === "keep" ? "keep my tone" : t}</option>
+                    ))}
+                  </select>
+                  <Button size="sm" variant="outline" disabled={aiBusy} onClick={() => void onSuggest()}>
+                    {aiBusy ? "Thinking…" : "Suggest"}
+                  </Button>
+                </div>
+
+                {aiError && <p className="text-xs text-destructive">{aiError}</p>}
+
+                {suggestion && (
+                  <div className="space-y-2">
+                    {suggestion.notes && <p className="text-xs text-muted-foreground">{suggestion.notes}</p>}
+                    {suggestion.captions.map((c, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setCaption(c)}
+                        className="block w-full rounded-md border p-2 text-left text-sm transition-colors hover:bg-accent"
+                        title="Click to use this caption"
+                      >
+                        {c}
+                      </button>
+                    ))}
+                    {suggestion.hashtags.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {suggestion.hashtags.map((h) => (
+                          <button
+                            key={h}
+                            type="button"
+                            onClick={() =>
+                              setHashtags((cur) => (cur.includes(`#${h}`) ? cur : `${cur} #${h}`.trim()))
+                            }
+                            className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          >
+                            #{h}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className="ml-1 text-xs text-muted-foreground underline"
+                          onClick={() => setHashtags(suggestion.hashtags.map((h) => `#${h}`).join(" "))}
+                        >
+                          use all
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Nothing is applied until you click it. Check the facts — the model rewrites
+                      wording, it does not verify claims.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="hashtags">Hashtags</Label>
