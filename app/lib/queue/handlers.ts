@@ -50,11 +50,11 @@ function loadMediaPaths(mediaIds: number[]): string[] {
   return rows.map((r) => `${uploadsDir}/${r.path}`);
 }
 
-export async function handlePublishPost(payload: PublishPayload): Promise<void> {
+export async function handlePublishPost(payload: PublishPayload, jobId: number): Promise<void> {
   const { postId } = payload;
   const loaded = loadPost(postId);
   if (!loaded) {
-    fail(postId, `post ${postId} not found`);
+    fail(jobId, `post ${postId} not found`);
     return;
   }
   const { post, account } = loaded;
@@ -96,28 +96,28 @@ export async function handlePublishPost(payload: PublishPayload): Promise<void> 
         Math.floor(Date.now() / 1000),
         postId,
       );
-    complete(postId);
+    complete(jobId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     sqlite
       .prepare(`UPDATE posts SET status='failed', error=?, updated_at=? WHERE id=?`)
       .run(msg, Math.floor(Date.now() / 1000), postId);
-    fail(postId, msg);
+    fail(jobId, msg);
   }
 }
 
 // Creates a new post from a schedule rule's template, then schedules the
 // next run (hourly placeholder — cron calc comes in a later milestone).
-export async function handleScheduleRule(payload: { ruleId: number }): Promise<void> {
+export async function handleScheduleRule(payload: { ruleId: number }, jobId: number): Promise<void> {
   const { ruleId } = payload;
   const rule = db.select().from(scheduleRules).where(eq(scheduleRules.id, ruleId)).get();
   if (!rule) {
-    fail(ruleId, `schedule rule ${ruleId} not found`);
+    fail(jobId, `schedule rule ${ruleId} not found`);
     return;
   }
   const account = db.select().from(accounts).where(eq(accounts.id, rule.accountId)).get();
   if (!account) {
-    fail(ruleId, `schedule rule ${ruleId}: account not found`);
+    fail(jobId, `schedule rule ${ruleId}: account not found`);
     return;
   }
   const template = rule.templatePostId
@@ -140,7 +140,7 @@ export async function handleScheduleRule(payload: { ruleId: number }): Promise<v
     .returning({ id: posts.id })
     .get();
   if (!newPost) {
-    fail(ruleId, `schedule rule ${ruleId}: failed to create post`);
+    fail(jobId, `schedule rule ${ruleId}: failed to create post`);
     return;
   }
   if (template) {
@@ -161,22 +161,22 @@ export async function handleScheduleRule(payload: { ruleId: number }): Promise<v
     next,
     now,
   );
-  complete(ruleId);
+  complete(jobId);
 }
 
 export async function handleJob(kind: string, payload: Record<string, unknown>, jobId: number): Promise<void> {
   switch (kind) {
     case "publish_post":
-      await handlePublishPost(payload as unknown as PublishPayload);
+      await handlePublishPost(payload as unknown as PublishPayload, jobId);
       return;
     case "fetch_metrics":
-      await handleFetchMetrics(payload as unknown as FetchMetricsPayload);
+      await handleFetchMetrics(payload as unknown as FetchMetricsPayload, jobId);
       return;
     case "post_comment":
-      await handlePostComment(payload as unknown as PostCommentPayload);
+      await handlePostComment(payload as unknown as PostCommentPayload, jobId);
       return;
     case "schedule_rule":
-      await handleScheduleRule(payload as unknown as { ruleId: number });
+      await handleScheduleRule(payload as unknown as { ruleId: number }, jobId);
       return;
     default:
       fail(jobId, `unknown job kind: ${kind}`);

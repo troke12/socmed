@@ -13,16 +13,16 @@ interface PostCommentPayload {
   text: string;
 }
 
-export async function handlePostComment(payload: PostCommentPayload): Promise<void> {
+export async function handlePostComment(payload: PostCommentPayload, jobId: number): Promise<void> {
   const { engagementActionId, targetType, targetId, text } = payload;
   const action = db.select().from(engagementActions).where(eq(engagementActions.id, engagementActionId)).get();
   if (!action) {
-    fail(engagementActionId, `engagement action ${engagementActionId} not found`);
+    fail(jobId, `engagement action ${engagementActionId} not found`);
     return;
   }
   const account = db.select().from(accounts).where(eq(accounts.id, action.accountId)).get();
   if (!account) {
-    fail(engagementActionId, "account not found");
+    fail(jobId, "account not found");
     return;
   }
 
@@ -30,13 +30,13 @@ export async function handlePostComment(payload: PostCommentPayload): Promise<vo
   let post: Post | undefined;
   if (targetType === "comment") {
     const c = db.select().from(comments).where(eq(comments.id, targetId)).get();
-    if (!c) { fail(engagementActionId, "comment not found"); return; }
+    if (!c) { fail(jobId, "comment not found"); return; }
     platformCommentId = c.platformCommentId;
     const p = db.select().from(posts).where(eq(posts.id, c.postId)).get();
     post = p;
   } else {
     const m = db.select().from(mentions).where(eq(mentions.id, targetId)).get();
-    if (!m) { fail(engagementActionId, "mention not found"); return; }
+    if (!m) { fail(jobId, "mention not found"); return; }
     platformCommentId = m.platformMentionId;
     // For mentions, we still need a post context for some platforms; pick the most recent published post for this account.
     const p = db
@@ -49,7 +49,7 @@ export async function handlePostComment(payload: PostCommentPayload): Promise<vo
   }
 
   if (!platformCommentId) {
-    fail(engagementActionId, "platform comment id missing");
+    fail(jobId, "platform comment id missing");
     return;
   }
   if (!post) {
@@ -88,10 +88,10 @@ export async function handlePostComment(payload: PostCommentPayload): Promise<vo
     if (targetType === "comment") {
       sqlite.prepare(`UPDATE comments SET is_replied = 1, reply_id = ? WHERE id = ?`).run(result.platformCommentId, targetId);
     }
-    complete(engagementActionId);
+    complete(jobId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     sqlite.prepare(`UPDATE engagement_actions SET status = 'failed', error = ? WHERE id = ?`).run(msg, engagementActionId);
-    fail(engagementActionId, msg);
+    fail(jobId, msg);
   }
 }
