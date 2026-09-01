@@ -1,5 +1,6 @@
 import type { PlatformAdapter, PublishInput, PublishResult, AnalyticsSnapshot, Comment, ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
+import { RefreshUnsupportedError } from "../types";
 import {
   facebookBeginOAuth,
   facebookCompleteOAuth,
@@ -17,8 +18,8 @@ export const facebookAdapter: PlatformAdapter = {
   platform: "facebook",
   async beginOAuth() { return facebookBeginOAuth(); },
   async completeOAuth(code: string) { return facebookCompleteOAuth(code); },
-  async refresh() {
-    throw new Error("Facebook: re-run OAuth to get a new page access token");
+  async refresh(): Promise<never> {
+    throw new RefreshUnsupportedError("Facebook: re-run OAuth to get a new page access token");
   },
   async publishPost(input: PublishInput, ctx: AdapterContext): Promise<PublishResult> {
     if (!input.accessToken) throw new Error("Facebook: no access token");
