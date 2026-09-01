@@ -91,12 +91,22 @@ export const posts = sqliteTable(
     platformPostUrl: text("platform_post_url"),
     error: text("error"),
     attemptCount: integer("attempt_count").notNull().default(0),
+    // Review state is tracked separately from status: "awaiting approval" and
+    // "scheduled for Tuesday" are independent facts about the same post.
+    reviewStatus: text("review_status", { enum: ["none", "pending", "approved", "rejected"] })
+      .notNull()
+      .default("none"),
+    authorId: integer("author_id").references(() => users.id, { onDelete: "set null" }),
+    reviewerId: integer("reviewer_id").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: integer("reviewed_at"),
+    reviewNote: text("review_note"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => ({
     statusIdx: index("posts_status_idx").on(t.status),
     accountIdx: index("posts_account_idx").on(t.accountId),
+    reviewIdx: index("posts_review_pending_idx").on(t.reviewStatus),
   }),
 );
 
@@ -244,6 +254,7 @@ export type Platform = Account["platform"];
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
 export type PostStatus = Post["status"];
+export type ReviewStatus = Post["reviewStatus"];
 export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type ScheduleRule = typeof scheduleRules.$inferSelect;
 export type Job = typeof jobs.$inferSelect;

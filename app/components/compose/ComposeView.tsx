@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil, Library } from "lucide-react";
+import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil, Library, ClipboardCheck } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,10 @@ export function ComposeView() {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [role, setRole] = useState<"admin" | "editor" | "viewer" | null>(null);
+  const [approvalRequired, setApprovalRequired] = useState(false);
+  const [reviewStatus, setReviewStatus] = useState<"none" | "pending" | "approved" | "rejected">("none");
+  const [reviewNote, setReviewNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -69,6 +73,19 @@ export function ComposeView() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetch("/api/auth/me");
+      if (!res.ok) return;
+      const j = (await res.json()) as {
+        user: { role: "admin" | "editor" | "viewer" } | null;
+        approvalRequired?: boolean;
+      };
+      setRole(j.user?.role ?? null);
+      setApprovalRequired(j.approvalRequired ?? false);
+    })();
+  }, []);
 
   useEffect(() => {
     if (!editId) return;
@@ -86,6 +103,8 @@ export function ComposeView() {
           post: {
             id: number; accountId: number; status: string; caption: string;
             hashtags: string; linkUrl: string | null; scheduledFor: number | null;
+            reviewStatus: "none" | "pending" | "approved" | "rejected";
+            reviewNote: string | null;
           };
           media: MediaItem[];
         };
@@ -103,6 +122,8 @@ export function ComposeView() {
         setLinkUrl(j.post.linkUrl ?? "");
         setMedia(j.media);
         setScheduledFor(j.post.scheduledFor ? toLocalInput(j.post.scheduledFor) : "");
+        setReviewStatus(j.post.reviewStatus);
+        setReviewNote(j.post.reviewNote);
       } finally {
         if (!cancelled) setLoadingPost(false);
       }
@@ -177,6 +198,31 @@ export function ComposeView() {
         height: item.height,
       }];
     });
+  }
+
+  // With approval on, an editor's only route to publication is the review queue.
+  const gated = approvalRequired && role !== null && role !== "admin";
+
+  async function onReviewSubmit(): Promise<void> {
+    if (!postId) { setError("save the post first, then submit it for review"); return; }
+    setBusy(true); setError(null); setInfo(null);
+    try {
+      const res = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "submit_review", id: postId }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(j.error ?? "could not submit for review");
+        return;
+      }
+      setReviewStatus("pending");
+      setReviewNote(null);
+      setInfo("Submitted for review ✓");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onSubmit(action: "draft" | "schedule" | "publish") {
@@ -399,6 +445,23 @@ export function ComposeView() {
               </div>
             </div>
 
+            {reviewStatus === "rejected" && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+                <strong className="text-destructive">Sent back for changes.</strong>{" "}
+                {reviewNote ? reviewNote : "No note was left — ask the reviewer what they want changed."}
+              </div>
+            )}
+            {reviewStatus === "pending" && (
+              <div className="rounded-md border border-info-border/50 bg-info/10 px-3 py-2 text-sm">
+                Awaiting review. Editing the caption or media keeps it in the queue.
+              </div>
+            )}
+            {reviewStatus === "approved" && (
+              <div className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">
+                Approved{gated ? " — editing the content sends it back for review." : "."}
+              </div>
+            )}
+
             {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
             {info && <div className="flex items-center gap-2 rounded-md bg-success/10 px-3 py-2 text-sm text-success"><CheckCircle2 className="h-4 w-4" />{info}</div>}
 
@@ -409,9 +472,22 @@ export function ComposeView() {
               <Button variant="outline" size="sm" disabled={busy || !scheduledFor} onClick={() => void onSubmit("schedule")}>
                 <CalendarClock className="h-4 w-4" /> Schedule
               </Button>
-              <Button size="sm" className="ml-auto" disabled={busy || accountIds.length === 0} onClick={() => void onSubmit("publish")}>
-                <Send className="h-4 w-4" /> Publish now
-              </Button>
+              {gated ? (
+                <Button
+                  size="sm"
+                  className="ml-auto"
+                  disabled={busy || !postId || reviewStatus === "pending"}
+                  title={postId ? undefined : "Save the post first"}
+                  onClick={() => void onReviewSubmit()}
+                >
+                  <ClipboardCheck className="h-4 w-4" />
+                  {reviewStatus === "pending" ? "Awaiting review" : "Submit for review"}
+                </Button>
+              ) : (
+                <Button size="sm" className="ml-auto" disabled={busy || accountIds.length === 0} onClick={() => void onSubmit("publish")}>
+                  <Send className="h-4 w-4" /> Publish now
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
