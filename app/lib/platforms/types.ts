@@ -78,6 +78,19 @@ export class NotImplementedError extends Error {
   }
 }
 
+/**
+ * Thrown by refresh() on platforms that have no refresh grant at all (Discord bot
+ * tokens, Facebook page tokens). Distinct from a normal refresh failure: retrying
+ * can never succeed, so the token-refresh handler treats it as terminal and skips
+ * the backoff cycle instead of burning five attempts on it.
+ */
+export class RefreshUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RefreshUnsupportedError";
+  }
+}
+
 // Reply result; many platforms return {id} and we wrap as {platformCommentId: id}
 export interface ReplyResult {
   platformCommentId: string;

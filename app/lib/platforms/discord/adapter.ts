@@ -1,5 +1,6 @@
 import type { PlatformAdapter, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
+import { RefreshUnsupportedError } from "../types";
 import {
   discordDeleteMessage,
   discordFetchRecentMessages,
@@ -32,8 +33,8 @@ export const discordAdapter: PlatformAdapter = {
   platform: "discord",
   async beginOAuth() { throw new Error("Discord does not use OAuth — add a bot token on the Accounts page"); },
   async completeOAuth() { throw new Error("Discord does not use OAuth"); },
-  async refresh() {
-    throw new Error("Discord bot tokens do not need refresh");
+  async refresh(): Promise<never> {
+    throw new RefreshUnsupportedError("Discord bot tokens do not need refresh");
   },
   async publishPost(input: PublishInput, _ctx: AdapterContext): Promise<PublishResult> {
     if (!input.rawCreds) throw new Error("Discord: no creds");

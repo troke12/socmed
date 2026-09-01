@@ -8,6 +8,7 @@ import { eq, inArray } from "drizzle-orm";
 import { complete, fail } from "./claim";
 import { handleFetchMetrics } from "./analytics";
 import { handlePostComment } from "./engagement";
+import { handleRefreshToken, type RefreshTokenPayload } from "./tokens";
 
 interface PublishPayload {
   postId: number;
@@ -177,6 +178,9 @@ export async function handleJob(kind: string, payload: Record<string, unknown>, 
       return;
     case "schedule_rule":
       await handleScheduleRule(payload as unknown as { ruleId: number }, jobId);
+      return;
+    case "refresh_token":
+      await handleRefreshToken(payload as unknown as RefreshTokenPayload, jobId);
       return;
     default:
       fail(jobId, `unknown job kind: ${kind}`);
