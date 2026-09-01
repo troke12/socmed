@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { trySession } from "@/lib/auth/require";
 import { logoutAction } from "@/app/(authed)/actions";
 import { atLeast, type Role } from "@/lib/auth/roles";
+import { twoFactorRequired } from "@/lib/auth/totp-policy";
+import { SecurityView } from "@/components/security/SecurityView";
+import { db } from "@db/client";
+import { users } from "@db/schema";
+import { eq } from "drizzle-orm";
 import {
   Users,
   PenSquare,
@@ -13,6 +18,7 @@ import {
   Images,
   UserCog,
   ClipboardCheck,
+  ShieldCheck,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -30,6 +36,7 @@ const NAV: { href: string; label: string; icon: typeof Users; minRole: Role }[] 
   { href: "/inbox", label: "Inbox", icon: Inbox, minRole: "viewer" },
   { href: "/review", label: "Review", icon: ClipboardCheck, minRole: "admin" },
   { href: "/users", label: "Users", icon: UserCog, minRole: "admin" },
+  { href: "/security", label: "Security", icon: ShieldCheck, minRole: "viewer" },
 ];
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
@@ -37,7 +44,19 @@ export default async function AuthedLayout({ children }: { children: React.React
   // disabled account is bounced to /login on its very next navigation.
   const user = await trySession();
   if (!user) redirect("/login");
-  const nav = NAV.filter((item) => atLeast(user.role, item.minRole));
+
+  // Enforcement cannot sit at the login gate: someone with no enrolment yet
+  // would be locked out of the page where they would set it up. The session is
+  // issued as normal and the enrolment screen replaces every page until they
+  // finish. Redirecting to /security instead would loop, since that page lives
+  // under this same layout.
+  let mustEnrol = false;
+  if (twoFactorRequired()) {
+    const row = db.select({ totpEnabled: users.totpEnabled }).from(users).where(eq(users.id, user.id)).get();
+    mustEnrol = !row?.totpEnabled;
+  }
+
+  const nav = mustEnrol ? [] : NAV.filter((item) => atLeast(user.role, item.minRole));
 
   return (
     <div className="flex min-h-screen">
@@ -101,7 +120,21 @@ export default async function AuthedLayout({ children }: { children: React.React
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-8">{children}</main>
+        <main className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-8">
+          {mustEnrol ? (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-semibold">Set up two-factor authentication</h1>
+                <p className="text-sm text-muted-foreground">
+                  This installation requires it. The rest of the app unlocks once you finish.
+                </p>
+              </div>
+              <SecurityView required />
+            </div>
+          ) : (
+            children
+          )}
+        </main>
       </div>
     </div>
   );

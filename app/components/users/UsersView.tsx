@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { UserPlus, Trash2, KeyRound, Ban, Check } from "lucide-react";
+import { UserPlus, Trash2, KeyRound, Ban, Check, ShieldCheck, ShieldOff } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ interface UserRow {
   username: string;
   role: Role;
   disabled: number;
+  totpEnabled: number;
   createdAt: number;
 }
 
@@ -66,6 +67,28 @@ export function UsersView({ currentUserId }: { currentUserId: number }) {
       setInfo(okMsg);
       await refresh();
       return true;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Lives on /api/auth/totp rather than /api/users because it is the same
+  // enrolment record the user manages themselves.
+  async function resetTotp(id: number): Promise<void> {
+    setBusy(true); setError(null); setInfo(null);
+    try {
+      const res = await fetch("/api/auth/totp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "admin_reset", id }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(j.error ?? "could not reset two-factor");
+        return;
+      }
+      setInfo("Two-factor reset — they can enrol again from Security.");
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -138,6 +161,11 @@ export function UsersView({ currentUserId }: { currentUserId: number }) {
                     <span className="truncate text-sm font-medium">{u.username}</span>
                     {u.id === currentUserId && <Badge variant="secondary" className="text-[10px]">you</Badge>}
                     {u.disabled ? <Badge variant="secondary" className="text-[10px]">disabled</Badge> : null}
+                    {u.totpEnabled ? (
+                      <Badge variant="secondary" className="gap-1 text-[10px]">
+                        <ShieldCheck className="h-2.5 w-2.5" /> 2FA
+                      </Badge>
+                    ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Added {new Date(u.createdAt * 1000).toLocaleDateString()} · {ROLE_DESCRIPTIONS[u.role]}
@@ -177,6 +205,17 @@ export function UsersView({ currentUserId }: { currentUserId: number }) {
                   >
                     <KeyRound className="h-4 w-4" />
                   </Button>
+                  {u.totpEnabled ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      title="Reset two-factor (they lost their device)"
+                      disabled={busy}
+                      onClick={() => void resetTotp(u.id)}
+                    >
+                      <ShieldOff className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   <Button
                     variant="outline"
                     size="sm"
