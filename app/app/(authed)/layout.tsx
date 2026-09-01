@@ -20,6 +20,7 @@ import {
   ClipboardCheck,
   ShieldCheck,
   Link2,
+  KeyRound,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -38,6 +39,7 @@ const NAV: { href: string; label: string; icon: typeof Users; minRole: Role }[] 
   { href: "/inbox", label: "Inbox", icon: Inbox, minRole: "viewer" },
   { href: "/review", label: "Review", icon: ClipboardCheck, minRole: "admin" },
   { href: "/users", label: "Users", icon: UserCog, minRole: "admin" },
+  { href: "/tokens", label: "API tokens", icon: KeyRound, minRole: "admin" },
   { href: "/security", label: "Security", icon: ShieldCheck, minRole: "viewer" },
 ];
 
