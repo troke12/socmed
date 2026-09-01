@@ -6,9 +6,11 @@ import { accounts, posts, postMedia, mediaAssets, scheduleRules, type Post, type
 import type { AccountWithCreds } from "@platforms/types";
 import { eq, inArray } from "drizzle-orm";
 import { complete, fail } from "./claim";
+import { enqueue } from "./enqueue";
 import { handleFetchMetrics } from "./analytics";
 import { handlePostComment } from "./engagement";
 import { handleRefreshToken, type RefreshTokenPayload } from "./tokens";
+import { nextCronRun } from "@/lib/schedule/cron";
 
 interface PublishPayload {
   postId: number;
@@ -107,8 +109,8 @@ export async function handlePublishPost(payload: PublishPayload, jobId: number):
   }
 }
 
-// Creates a new post from a schedule rule's template, then schedules the
-// next run (hourly placeholder — cron calc comes in a later milestone).
+// Creates a new post from a schedule rule's template and publishes it now, then
+// advances next_run_at to the rule's next cron occurrence.
 export async function handleScheduleRule(payload: { ruleId: number }, jobId: number): Promise<void> {
   const { ruleId } = payload;
   const rule = db.select().from(scheduleRules).where(eq(scheduleRules.id, ruleId)).get();
@@ -134,7 +136,9 @@ export async function handleScheduleRule(payload: { ruleId: number }, jobId: num
       caption: template?.caption ?? "",
       hashtags: template?.hashtags ?? "",
       linkUrl: template?.linkUrl ?? null,
-      scheduledFor: now + 60 * 60,
+      // The rule fired because its next_run_at already came due, so this
+      // occurrence publishes immediately rather than an interval from now.
+      scheduledFor: now,
       createdAt: now,
       updatedAt: now,
     })
@@ -154,14 +158,19 @@ export async function handleScheduleRule(payload: { ruleId: number }, jobId: num
       db.insert(postMedia).values({ postId: newPost.id, mediaId: m.mediaId, position: i }).run();
     });
   }
-  // Enqueue the publish for the next hour; bump next_run_at.
-  const next = now + 60 * 60;
+  // Advance the rule before publishing. A malformed cron_expr must not leave the
+  // rule pinned to a past next_run_at, or the cron poller would refire it every
+  // tick forever; disabling it surfaces the problem in the UI instead.
+  let next: number;
+  try {
+    next = nextCronRun(rule.cronExpr, rule.timezone, now);
+  } catch (err) {
+    sqlite.prepare(`UPDATE schedule_rules SET enabled = 0, last_run_at = ? WHERE id = ?`).run(now, rule.id);
+    fail(jobId, `schedule rule ${ruleId}: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
   sqlite.prepare(`UPDATE schedule_rules SET next_run_at = ?, last_run_at = ? WHERE id = ?`).run(next, now, rule.id);
-  sqlite.prepare(`INSERT INTO jobs (kind, payload, run_at, max_attempts, created_at) VALUES ('publish_post', ?, ?, 5, ?)`).run(
-    JSON.stringify({ postId: newPost.id }),
-    next,
-    now,
-  );
+  enqueue("publish_post", { postId: newPost.id }, { runAt: now });
   complete(jobId);
 }
 
