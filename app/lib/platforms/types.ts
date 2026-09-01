@@ -114,7 +114,18 @@ export interface PlatformAdapter {
   ): Promise<{ mentions: Mention[]; nextCursor?: string }>;
   fetchComments(platformPostId: string, accessToken: string, since: number, ctx: AdapterContext): Promise<Comment[]>;
 
+  /** Replies to an existing comment or mention. Takes a *comment* id. */
   postCommentReply(platformCommentId: string, text: string, accessToken: string, ctx: AdapterContext): Promise<ReplyResult>;
+  /**
+   * Adds a new top-level comment to one of our own posts. Takes a *post* id.
+   *
+   * Separate from postCommentReply because on several platforms these are
+   * genuinely different endpoints — Instagram posts a reply to /{comment}/replies
+   * but a new comment to /{media}/comments, and YouTube needs commentThreads
+   * rather than comments. Passing a post id to the reply call is not a
+   * near-miss; it is the wrong request.
+   */
+  postComment?(platformPostId: string, text: string, accessToken: string, ctx: AdapterContext): Promise<ReplyResult>;
   likeTarget(platformTargetId: string, accessToken: string, ctx: AdapterContext): Promise<void>;
 
   verifyWebhookSignature(rawBody: string, headers: Record<string, string>): boolean;

@@ -2,7 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SUPPORTS_COMMENT_REPLY, supportsFirstComment } from "@platforms/capabilities";
+import {
+  SUPPORTS_COMMENT_REPLY,
+  SUPPORTS_TOP_LEVEL_COMMENT,
+  supportsFirstComment,
+} from "@platforms/capabilities";
 import { NotImplementedError } from "@platforms/types";
 import type { Platform } from "@db/schema";
 
@@ -33,11 +37,23 @@ afterAll(() => {
 describe("comment-reply capability map", () => {
   it("covers every platform in the accounts enum", async () => {
     const { accounts } = await import("@db/schema");
-    // Drift guard: a 13th platform must make a conscious choice here rather
-    // than defaulting to undefined and reading as unsupported by accident.
+    // Drift guard: a 13th platform must make a conscious choice in both maps
+    // rather than defaulting to undefined and reading as unsupported by accident.
     const enumValues = (accounts.platform as unknown as { enumValues: readonly Platform[] }).enumValues;
     for (const p of enumValues) {
       expect(SUPPORTS_COMMENT_REPLY[p], `${p} missing from SUPPORTS_COMMENT_REPLY`).toBeTypeOf("boolean");
+      expect(SUPPORTS_TOP_LEVEL_COMMENT[p], `${p} missing from SUPPORTS_TOP_LEVEL_COMMENT`).toBeTypeOf("boolean");
+    }
+  });
+
+  it("exposes postComment exactly where the top-level map says it can", async () => {
+    await import("@platforms/bootstrap");
+    const { getAdapter } = await import("@platforms/registry");
+    for (const [platform, supported] of Object.entries(SUPPORTS_TOP_LEVEL_COMMENT) as [Platform, boolean][]) {
+      const hasMethod = typeof getAdapter(platform).postComment === "function";
+      // The map drives the UI hint and the handler's terminal path, so a map
+      // entry with no method behind it would promise something that cannot run.
+      expect(hasMethod, `${platform}: map says ${supported} but postComment ${hasMethod ? "exists" : "is missing"}`).toBe(supported);
     }
   });
 
@@ -60,11 +76,21 @@ describe("comment-reply capability map", () => {
     }
   });
 
-  it("reports x, instagram, linkedin and tiktok as unsupported", () => {
-    for (const p of ["x", "instagram", "linkedin", "tiktok"] as Platform[]) {
-      expect(supportsFirstComment(p)).toBe(false);
+  it("now reports x, instagram and linkedin as able to reply", () => {
+    // These three returned a fake success before; only TikTok genuinely has no
+    // endpoint for it.
+    for (const p of ["x", "instagram", "linkedin"] as Platform[]) {
+      expect(SUPPORTS_COMMENT_REPLY[p]).toBe(true);
     }
-    for (const p of ["reddit", "mastodon", "facebook", "discord", "youtube"] as Platform[]) {
+    expect(SUPPORTS_COMMENT_REPLY.tiktok).toBe(false);
+  });
+
+  it("separates top-level comment support from reply support", () => {
+    // Discord can reply but cannot open a top-level comment: publishPost stores
+    // a bare message id and the channel id is also needed.
+    expect(SUPPORTS_COMMENT_REPLY.discord).toBe(true);
+    expect(supportsFirstComment("discord")).toBe(false);
+    for (const p of ["x", "instagram", "linkedin", "reddit", "mastodon", "facebook", "youtube"] as Platform[]) {
       expect(supportsFirstComment(p)).toBe(true);
     }
   });
@@ -72,7 +98,7 @@ describe("comment-reply capability map", () => {
   it("throws NotImplementedError specifically", async () => {
     await import("@platforms/bootstrap");
     const { getAdapter } = await import("@platforms/registry");
-    await expect(getAdapter("x").postCommentReply("id", "t", "tok", {} as never)).rejects.toBeInstanceOf(
+    await expect(getAdapter("tiktok").postCommentReply("id", "t", "tok", {} as never)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });
@@ -117,13 +143,20 @@ describe("handleFirstComment", () => {
   }
 
   it("closes out without retrying on a platform that cannot post comments", async () => {
-    const postId = await seed({ platform: "instagram", firstComment: "#tags", platformPostId: "ig_1" });
+    const postId = await seed({ platform: "tiktok", firstComment: "#tags", platformPostId: "tt_1" });
     const r = await run(postId);
-    // Retrying cannot make Instagram support it, so burning five backoff cycles
-    // would be pure waste.
+    // Retrying cannot give TikTok an endpoint it does not have, so burning five
+    // backoff cycles would be pure waste.
     expect(r.status).toBe("done");
-    expect(r.error).toContain("not supported on instagram");
+    expect(r.error).toContain("not supported on tiktok");
     expect(r.postedAt).toBeNull();
+  });
+
+  it("closes out on a platform that can reply but not open a thread", async () => {
+    const postId = await seed({ platform: "discord", firstComment: "#tags", platformPostId: "msg_1" });
+    const r = await run(postId);
+    expect(r.status).toBe("done");
+    expect(r.error).toContain("not supported on discord");
   });
 
   it("does nothing when the post has no first comment", async () => {

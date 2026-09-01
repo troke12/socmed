@@ -78,6 +78,13 @@ export const mastodonAdapter: PlatformAdapter = {
     const r = await mastodonPostStatus(inst, text, token, { inReplyToId: id });
     return { platformCommentId: r.id };
   },
+  // A Mastodon post is a status, so a top-level comment is a status replying to
+  // it — the same call as replying to a comment.
+  async postComment(platformPostId: string, text: string, token: string, ctx: AdapterContext): Promise<ReplyResult> {
+    const inst = instanceUrl(ctx);
+    const r = await mastodonPostStatus(inst, text, token, { inReplyToId: platformPostId });
+    return { platformCommentId: r.id };
+  },
   async likeTarget() { /* out of scope for v1 */ },
   verifyWebhookSignature: mastodonVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {

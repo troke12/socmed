@@ -63,7 +63,12 @@ export async function linkedinBeginOAuth(): Promise<{ authUrl: string; state: st
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", "openid profile email w_member_social");
+  // Commenting needs w_member_social_feed, which publishing does not, and which
+  // LinkedIn only grants to apps approved for the Community Management API.
+  // Adding it unconditionally would break the authorize call for every app
+  // without that approval, so it is opt-in through LINKEDIN_SCOPES.
+  const scope = process.env.LINKEDIN_SCOPES?.trim() || "openid profile email w_member_social";
+  url.searchParams.set("scope", scope);
   url.searchParams.set("state", state);
   return { authUrl: url.toString(), state };
 }
@@ -262,4 +267,44 @@ export function linkedinVerifyWebhookSignature(raw: string, headers: Record<stri
 
 export function linkedinParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } {
   return {};
+}
+
+/**
+ * Creates a comment on a post, or a reply when parentComment is supplied — one
+ * endpoint serves both, and parentComment is the only thing that distinguishes
+ * them.
+ *
+ * Needs w_member_social_feed, which is a different scope from the
+ * w_member_social used for publishing and is gated behind Community Management
+ * API approval. LINKEDIN_SCOPES exists so an approved app can opt in without
+ * this becoming a breaking change for one that is not — see linkedinBeginOAuth.
+ *
+ * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api
+ */
+export async function linkedinCreateComment(
+  targetUrn: string,
+  text: string,
+  accessToken: string,
+  opts: { parentComment?: string } = {},
+): Promise<{ id: string }> {
+  const actorUrn = await linkedinGetUserUrn(accessToken);
+  const body: Record<string, unknown> = {
+    actor: actorUrn,
+    object: targetUrn,
+    message: { text },
+  };
+  if (opts.parentComment) body.parentComment = opts.parentComment;
+
+  const res = await fetch(
+    `${API_BASE}/rest/socialActions/${encodeURIComponent(targetUrn)}/comments`,
+    { method: "POST", headers: restHeaders(accessToken), body: JSON.stringify(body) },
+  );
+  if (!res.ok) throw new Error(`LinkedIn comment: ${res.status} ${await res.text()}`);
+  // Same pattern as posts: the id comes back in the header, and the body may be
+  // empty. Fall back to the body's id only if the header is absent.
+  const headerId = res.headers.get("x-restli-id");
+  if (headerId) return { id: headerId };
+  const j = (await res.json().catch(() => ({}))) as { id?: string };
+  if (!j.id) throw new Error("LinkedIn comment: created but no id in header or body");
+  return { id: j.id };
 }

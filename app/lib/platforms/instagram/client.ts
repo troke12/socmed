@@ -229,3 +229,38 @@ export function instagramVerifyWebhookSignature(raw: string, headers: Record<str
 export function instagramParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } {
   return {};
 }
+
+// Replying to a comment and commenting on a media object are two different
+// edges on Instagram — a reply posted to the media edge, or a top-level comment
+// posted to the replies edge, is simply the wrong call.
+// https://developers.facebook.com/docs/instagram-platform/comment-moderation/
+export async function instagramReplyToComment(
+  commentId: string,
+  message: string,
+  accessToken: string,
+): Promise<{ id: string }> {
+  const res = await fetch(`${GRAPH_BASE}/${commentId}/replies`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`Instagram reply: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as { id: string };
+  return { id: j.id };
+}
+
+// https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media/comments/
+export async function instagramCommentOnMedia(
+  mediaId: string,
+  message: string,
+  accessToken: string,
+): Promise<{ id: string }> {
+  const res = await fetch(`${GRAPH_BASE}/${mediaId}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`Instagram comment: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as { id: string };
+  return { id: j.id };
+}
