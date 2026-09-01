@@ -44,20 +44,64 @@ export function timeseriesByDay(snapshots: Snapshot[]): Array<{ day: string; imp
   return out;
 }
 
-export function breakdownByPlatform(snapshots: Snapshot[], platformKey: (s: Snapshot) => string): Array<{ platform: string; impressions: number; engagement: number; likes: number; comments: number; shares: number; postCount: number }> {
-  const groups = new Map<string, Snapshot[]>();
+export interface BreakdownRow {
+  key: string;
+  impressions: number;
+  engagement: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  postCount: number;
+}
+
+/**
+ * Groups snapshots by an arbitrary key. postCount is the number of *snapshots*,
+ * not distinct posts — a post polled hourly contributes many. Callers that need
+ * distinct posts should count postIds themselves.
+ */
+export function breakdownBy<T extends Snapshot>(snapshots: T[], keyOf: (s: T) => string): BreakdownRow[] {
+  const groups = new Map<string, T[]>();
   for (const s of snapshots) {
-    const k = platformKey(s);
+    const k = keyOf(s);
     const list = groups.get(k) ?? [];
     list.push(s);
     groups.set(k, list);
   }
-  const out: Array<{ platform: string; impressions: number; engagement: number; likes: number; comments: number; shares: number; postCount: number }> = [];
-  for (const [k, list] of groups) {
+  const out: BreakdownRow[] = [];
+  for (const [key, list] of groups) {
     const t = totalsFor(list);
-    out.push({ platform: k, impressions: t.impressions, engagement: t.engagementRate, likes: t.likes, comments: t.comments, shares: t.shares, postCount: t.postCount });
+    out.push({
+      key,
+      impressions: t.impressions,
+      engagement: t.engagementRate,
+      likes: t.likes,
+      comments: t.comments,
+      shares: t.shares,
+      postCount: t.postCount,
+    });
   }
   return out.sort((a, b) => b.impressions - a.impressions);
+}
+
+export function breakdownByPlatform(snapshots: Snapshot[], platformKey: (s: Snapshot) => string): Array<{ platform: string; impressions: number; engagement: number; likes: number; comments: number; shares: number; postCount: number }> {
+  return breakdownBy(snapshots, platformKey).map(({ key, ...rest }) => ({ platform: key, ...rest }));
+}
+
+/** RFC 4180 quoting: wrap in quotes and double any embedded quote. */
+export function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  // A caption containing a comma, a quote or a newline would otherwise shift
+  // every following column in the row.
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function toCsv(headers: string[], rows: unknown[][]): string {
+  const lines = [headers.map(csvCell).join(",")];
+  for (const row of rows) lines.push(row.map(csvCell).join(","));
+  // CRLF per RFC 4180 — Excel is the main consumer and it is the safer choice.
+  return lines.join("\r\n");
 }
 
 export function topPosts(snapshots: Snapshot[], postMeta: Map<number, { caption: string; url?: string; platform?: string }>, limit = 10): Array<{ postId: number; caption: string; url?: string; platform?: string; engagement: number; impressions: number; likes: number; comments: number }> {
