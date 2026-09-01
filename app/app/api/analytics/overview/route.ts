@@ -1,46 +1,87 @@
 import { NextResponse } from "next/server";
+import { and, eq, gte, lte } from "drizzle-orm";
 import { db } from "@db/client";
-import { analyticsSnapshots, posts } from "@db/schema";
+import { analyticsSnapshots, posts, accounts } from "@db/schema";
 import { requireSession } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { runMigrations } from "@db/migrate";
-import { totalsFor, timeseriesByDay, breakdownByPlatform, topPosts, type Snapshot } from "@/lib/analytics/aggregate";
+import { totalsFor, timeseriesByDay, breakdownBy, topPosts, type Snapshot } from "@/lib/analytics/aggregate";
+import { resolveWindow } from "@/lib/analytics/window";
 
 export const runtime = "nodejs";
 
+type Row = Snapshot & { postId: number; platform: string; accountId: number };
+
 export async function GET(req: Request) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireSession(); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
-  const url = new URL(req.url);
-  const days = Math.max(1, Math.min(365, Number(url.searchParams.get("days") ?? 30)));
+  const params = new URL(req.url).searchParams;
 
-  const since = Math.floor(Date.now() / 1000) - days * 24 * 60 * 60;
+  const window = resolveWindow({
+    days: params.get("days"),
+    from: params.get("from"),
+    to: params.get("to"),
+  });
+  if (!window.ok) return NextResponse.json({ error: window.reason }, { status: 400 });
+  const { since, until } = window;
+
+  const accountParam = params.get("accountId");
+  const accountId = accountParam ? Number(accountParam) : null;
+  if (accountParam && (!Number.isInteger(accountId) || accountId! <= 0)) {
+    return NextResponse.json({ error: "invalid accountId" }, { status: 400 });
+  }
+
+  // Filtered in SQL. This used to load the whole snapshots table and filter in
+  // JS, which grows unbounded with every poll of every published post.
+  const conditions = [
+    gte(analyticsSnapshots.capturedAt, since),
+    lte(analyticsSnapshots.capturedAt, until),
+  ];
+  if (accountId) conditions.push(eq(analyticsSnapshots.accountId, accountId));
+
   const rows = db
-    .select()
+    .select({
+      postId: analyticsSnapshots.postId,
+      accountId: analyticsSnapshots.accountId,
+      platform: analyticsSnapshots.platform,
+      capturedAt: analyticsSnapshots.capturedAt,
+      impressions: analyticsSnapshots.impressions,
+      reach: analyticsSnapshots.reach,
+      likes: analyticsSnapshots.likes,
+      comments: analyticsSnapshots.comments,
+      shares: analyticsSnapshots.shares,
+      saves: analyticsSnapshots.saves,
+      videoViews: analyticsSnapshots.videoViews,
+      watchTimeMs: analyticsSnapshots.watchTimeMs,
+      engagementRate: analyticsSnapshots.engagementRate,
+    })
     .from(analyticsSnapshots)
-    .all()
-    .filter((r) => r.capturedAt >= since)
-    .map((r) => ({
-      postId: r.postId,
-      platform: r.platform,
-      capturedAt: r.capturedAt,
-      impressions: r.impressions,
-      reach: r.reach,
-      likes: r.likes,
-      comments: r.comments,
-      shares: r.shares,
-      saves: r.saves,
-      videoViews: r.videoViews,
-      watchTimeMs: r.watchTimeMs,
-      engagementRate: r.engagementRate,
-    })) as Array<Snapshot & { postId: number; platform: string }>;
+    .where(and(...conditions))
+    .all() as Row[];
 
-  const totals = totalsFor(rows as unknown as Snapshot[]);
-  const timeseries = timeseriesByDay(rows as unknown as Snapshot[]);
-  const byPlatform = breakdownByPlatform(rows as unknown as Snapshot[], (r) => (r as unknown as { platform: string }).platform);
+  const totals = totalsFor(rows);
+  const timeseries = timeseriesByDay(rows);
+  const byPlatform = breakdownBy(rows, (s) => s.platform).map(({ key, ...rest }) => ({
+    platform: key,
+    ...rest,
+  }));
 
-  // Build post meta for top posts
+  // Per-account breakdown. Two accounts on the same platform were previously
+  // indistinguishable, which is exactly the case an agency cares about.
+  const accountLabels = new Map(
+    db.select({ id: accounts.id, label: accounts.label, platform: accounts.platform }).from(accounts).all()
+      .map((a) => [a.id, a]),
+  );
+  const byAccount = breakdownBy(rows, (s) => String(s.accountId)).map(({ key, ...rest }) => {
+    const meta = accountLabels.get(Number(key));
+    return {
+      accountId: Number(key),
+      label: meta?.label ?? `Account ${key}`,
+      platform: meta?.platform ?? "unknown",
+      ...rest,
+    };
+  });
+
   const postMeta = new Map<number, { caption: string; url?: string; platform?: string }>();
   for (const p of db.select().from(posts).all()) {
     postMeta.set(p.id, { caption: p.caption.slice(0, 80), url: p.platformPostUrl ?? undefined, platform: undefined });
@@ -48,10 +89,11 @@ export async function GET(req: Request) {
   const top = topPosts(rows, postMeta, 10);
 
   return NextResponse.json({
-    window: { days, since },
+    window: { since, until, days: window.days },
     totals,
     timeseries,
     byPlatform,
+    byAccount,
     top,
   });
 }
