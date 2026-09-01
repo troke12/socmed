@@ -13,6 +13,7 @@ import { getPlatform, type PlatformId } from "@/lib/platform-meta";
 import { countComposeText, validateComposeMedia, getContentRules } from "@/lib/platforms/content-rules";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { MediaGrid, type LibraryItem } from "@/components/media/MediaGrid";
+import { nextOccurrence, WEEKDAY_NAMES, type Slot } from "@/lib/analytics/best-time";
 
 interface Account {
   id: number;
@@ -60,6 +61,7 @@ export function ComposeView() {
   const [approvalRequired, setApprovalRequired] = useState(false);
   const [reviewStatus, setReviewStatus] = useState<"none" | "pending" | "approved" | "rejected">("none");
   const [reviewNote, setReviewNote] = useState<string | null>(null);
+  const [bestTimes, setBestTimes] = useState<{ slots: Slot[]; sampleSize: number; confident: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -86,6 +88,21 @@ export function ComposeView() {
       setApprovalRequired(j.approvalRequired ?? false);
     })();
   }, []);
+
+  // Suggestions are per selected account when exactly one is picked; mixing
+  // accounts would average away the per-audience differences that make the
+  // recommendation worth anything.
+  useEffect(() => {
+    const params = new URLSearchParams({
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    });
+    if (accountIds.length === 1) params.set("accountId", String(accountIds[0]));
+    void (async () => {
+      const res = await fetch(`/api/analytics/best-time?${params.toString()}`);
+      if (!res.ok) { setBestTimes(null); return; }
+      setBestTimes((await res.json()) as { slots: Slot[]; sampleSize: number; confident: boolean });
+    })();
+  }, [accountIds]);
 
   useEffect(() => {
     if (!editId) return;
@@ -443,6 +460,28 @@ export function ComposeView() {
                   onChange={(e) => setScheduledFor(e.target.value)}
                 />
               </div>
+              {bestTimes && bestTimes.slots.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex flex-wrap gap-1">
+                    {bestTimes.slots.map((slot) => (
+                      <button
+                        key={`${slot.weekday}-${slot.hour}`}
+                        type="button"
+                        onClick={() => setScheduledFor(toLocalInput(Math.floor(nextOccurrence(slot).getTime() / 1000)))}
+                        className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                        title={`${slot.postCount} post${slot.postCount === 1 ? "" : "s"} · ${(slot.avgEngagementRate * 100).toFixed(1)}% avg engagement`}
+                      >
+                        {WEEKDAY_NAMES[slot.weekday]?.slice(0, 3)} {String(slot.hour).padStart(2, "0")}:00
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {bestTimes.confident
+                      ? `Your best-performing slots across ${bestTimes.sampleSize} published posts.`
+                      : `Based on only ${bestTimes.sampleSize} published post${bestTimes.sampleSize === 1 ? "" : "s"} — treat as an observation, not a recommendation.`}
+                  </p>
+                </div>
+              )}
             </div>
 
             {reviewStatus === "rejected" && (
