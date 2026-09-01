@@ -19,6 +19,7 @@ import {
   UserCog,
   ClipboardCheck,
   ShieldCheck,
+  Link2,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -33,6 +34,7 @@ const NAV: { href: string; label: string; icon: typeof Users; minRole: Role }[] 
   { href: "/calendar", label: "Calendar", icon: CalendarDays, minRole: "viewer" },
   { href: "/schedules", label: "Schedules", icon: Repeat, minRole: "viewer" },
   { href: "/analytics", label: "Analytics", icon: BarChart3, minRole: "viewer" },
+  { href: "/links", label: "Links", icon: Link2, minRole: "viewer" },
   { href: "/inbox", label: "Inbox", icon: Inbox, minRole: "viewer" },
   { href: "/review", label: "Review", icon: ClipboardCheck, minRole: "admin" },
   { href: "/users", label: "Users", icon: UserCog, minRole: "admin" },

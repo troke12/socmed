@@ -90,6 +90,7 @@ export const posts = sqliteTable(
     caption: text("caption").notNull().default(""),
     hashtags: text("hashtags").notNull().default(""),
     linkUrl: text("link_url"),
+    campaign: text("campaign"),
     scheduledFor: integer("scheduled_for"),
     publishedAt: integer("published_at"),
     platformPostId: text("platform_post_id"),
@@ -145,6 +146,23 @@ export const scheduleRules = sqliteTable("schedule_rules", {
   lastRunAt: integer("last_run_at"),
   createdAt: integer("created_at").notNull(),
 });
+
+export const shortLinks = sqliteTable(
+  "short_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    slug: text("slug").notNull().unique(),
+    targetUrl: text("target_url").notNull(),
+    postId: integer("post_id").references(() => posts.id, { onDelete: "set null" }),
+    accountId: integer("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    clicks: integer("clicks").notNull().default(0),
+    lastClickedAt: integer("last_clicked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    postIdx: index("short_links_post_idx").on(t.postId),
+  }),
+);
 
 export const analyticsSnapshots = sqliteTable(
   "analytics_snapshots",
@@ -262,5 +280,6 @@ export type PostStatus = Post["status"];
 export type ReviewStatus = Post["reviewStatus"];
 export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type ScheduleRule = typeof scheduleRules.$inferSelect;
+export type ShortLink = typeof shortLinks.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type JobKind = "publish_post" | "fetch_metrics" | "fetch_mentions" | "post_comment" | "refresh_token" | "schedule_rule";

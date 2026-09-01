@@ -51,6 +51,7 @@ export function ComposeView() {
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
+  const [campaign, setCampaign] = useState("");
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [scheduledFor, setScheduledFor] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +120,7 @@ export function ComposeView() {
         const j = (await res.json()) as {
           post: {
             id: number; accountId: number; status: string; caption: string;
-            hashtags: string; linkUrl: string | null; scheduledFor: number | null;
+            hashtags: string; linkUrl: string | null; campaign: string | null; scheduledFor: number | null;
             reviewStatus: "none" | "pending" | "approved" | "rejected";
             reviewNote: string | null;
           };
@@ -137,6 +138,7 @@ export function ComposeView() {
         setCaption(j.post.caption);
         setHashtags(j.post.hashtags);
         setLinkUrl(j.post.linkUrl ?? "");
+        setCampaign(j.post.campaign ?? "");
         setMedia(j.media);
         setScheduledFor(j.post.scheduledFor ? toLocalInput(j.post.scheduledFor) : "");
         setReviewStatus(j.post.reviewStatus);
@@ -272,6 +274,7 @@ export function ComposeView() {
         caption,
         hashtags,
         linkUrl: linkUrl || null,
+        campaign: campaign.trim() || null,
         mediaIds: media.map((m) => m.id),
         scheduledFor: action === "schedule" ? scheduledTs : null,
       };
@@ -324,7 +327,7 @@ export function ComposeView() {
       // Clearing is right after creating a post, but destructive when editing —
       // the fields still reflect the row that was just saved.
       if (!postId) {
-        setCaption(""); setHashtags(""); setLinkUrl(""); setMedia([]); setScheduledFor("");
+        setCaption(""); setHashtags(""); setLinkUrl(""); setCampaign(""); setMedia([]); setScheduledFor("");
       }
     } finally {
       setBusy(false);
@@ -447,6 +450,21 @@ export function ComposeView() {
                 value={linkUrl}
                 onChange={(e) => setLinkUrl(e.target.value)}
               />
+              {linkUrl && (
+                <>
+                  <Input
+                    id="campaign"
+                    placeholder="Campaign name for utm_campaign (optional)"
+                    value={campaign}
+                    onChange={(e) => setCampaign(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    UTM parameters are added per platform when the post publishes, so each
+                    target reports its own utm_source. Parameters already on your link are
+                    left alone.
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="space-y-2">

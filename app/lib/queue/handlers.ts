@@ -11,6 +11,8 @@ import { handleFetchMetrics } from "./analytics";
 import { handlePostComment } from "./engagement";
 import { handleRefreshToken, type RefreshTokenPayload } from "./tokens";
 import { nextCronRun } from "@/lib/schedule/cron";
+import { applyUtm, utmDefaults, utmSourceFor } from "@/lib/links/utm";
+import { createShortLink } from "@/lib/links/shorten";
 
 interface PublishPayload {
   postId: number;
@@ -39,6 +41,28 @@ function loadPost(postId: number): { post: Post; account: Account; mediaIds: num
     .all();
   const mediaIds = links.map((l) => l.mediaId).sort((a, b) => a - b);
   return { post, account, mediaIds };
+}
+
+/**
+ * The link as it should appear in the published post: UTM-tagged for the target
+ * platform, then shortened if the install has a shortener configured.
+ *
+ * Every step degrades to the previous value rather than failing. A malformed
+ * link or an unconfigured shortener must not take a publish down — the post
+ * still goes out, just without tracking.
+ */
+function trackedLink(post: Post, platform: Account["platform"], accountId: number): string | null {
+  if (!post.linkUrl) return null;
+  const utm = utmDefaults();
+  const tagged = utm.enabled
+    ? applyUtm(post.linkUrl, {
+        source: utmSourceFor(platform),
+        medium: utm.medium,
+        campaign: post.campaign ?? utm.campaign,
+      })
+    : post.linkUrl;
+  const short = createShortLink(tagged, { postId: post.id, accountId });
+  return short?.url ?? tagged;
 }
 
 function loadMediaPaths(mediaIds: number[]): string[] {
@@ -73,12 +97,16 @@ export async function handlePublishPost(payload: PublishPayload, jobId: number):
     const creds = decryptAccountCreds(account);
     const adapter = getAdapter(account.platform);
     const fullText = [post.caption, post.hashtags].filter(Boolean).join("\n\n");
+    // Tracking is applied per publish, not at compose time, because each target
+    // account needs its own utm_source — the same post fanned out to five
+    // platforms must not report all five as one source.
+    const linkUrl = trackedLink(post, account.platform, account.id);
     const result = await adapter.publishPost(
       {
         postId: post.id,
         caption: fullText,
         hashtags: post.hashtags,
-        linkUrl: post.linkUrl ?? undefined,
+        linkUrl: linkUrl ?? undefined,
         mediaIds,
         mediaPaths,
         accessToken: typeof creds.accessToken === "string" ? creds.accessToken : undefined,
