@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil } from "lucide-react";
+import { ImagePlus, Video, Send, CalendarClock, Save, X, CheckCircle2, Pencil, Library } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { getPlatform, type PlatformId } from "@/lib/platform-meta";
 import { countComposeText, validateComposeMedia, getContentRules } from "@/lib/platforms/content-rules";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { MediaGrid, type LibraryItem } from "@/components/media/MediaGrid";
 
 interface Account {
   id: number;
@@ -54,6 +55,7 @@ export function ComposeView() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -159,6 +161,22 @@ export function ComposeView() {
     }
     const j = (await res.json()) as { media: MediaItem };
     setMedia((m) => [...m, j.media]);
+  }
+
+  // Library items carry extra fields (usage count, poster) that the composer
+  // does not need; narrow to the MediaItem shape the rest of the form uses.
+  function toggleLibraryItem(item: LibraryItem): void {
+    setMedia((cur) => {
+      if (cur.some((m) => m.id === item.id)) return cur.filter((m) => m.id !== item.id);
+      return [...cur, {
+        id: item.id,
+        path: item.path,
+        kind: item.kind,
+        mime: item.mime,
+        width: item.width,
+        height: item.height,
+      }];
+    });
   }
 
   async function onSubmit(action: "draft" | "schedule" | "publish") {
@@ -420,9 +438,28 @@ export function ComposeView() {
                 e.target.value = "";
               }}
             />
-            <Button variant="outline" className="w-full" onClick={() => fileRef.current?.click()}>
-              <ImagePlus className="h-4 w-4" /> Add media
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={() => fileRef.current?.click()}>
+                <ImagePlus className="h-4 w-4" /> Upload
+              </Button>
+              <Button
+                variant={showLibrary ? "default" : "outline"}
+                onClick={() => setShowLibrary((v) => !v)}
+              >
+                <Library className="h-4 w-4" /> Library
+              </Button>
+            </div>
+
+            {showLibrary && (
+              <div className="rounded-md border p-2">
+                <MediaGrid
+                  compact
+                  selectedIds={media.map((m) => m.id)}
+                  onToggle={toggleLibraryItem}
+                  emptyHint="Nothing uploaded yet — use Upload above and it lands here for reuse."
+                />
+              </div>
+            )}
 
             {media.length === 0 ? (
               <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-md border border-dashed text-muted-foreground">
