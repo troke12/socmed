@@ -10,6 +10,7 @@ import { enqueue } from "./enqueue";
 import { handleFetchMetrics } from "./analytics";
 import { handlePostComment } from "./engagement";
 import { handleRefreshToken, type RefreshTokenPayload } from "./tokens";
+import { handleFirstComment, type FirstCommentPayload } from "./first-comment";
 import { nextCronRun } from "@/lib/schedule/cron";
 import { applyUtm, utmDefaults, utmSourceFor } from "@/lib/links/utm";
 import { createShortLink } from "@/lib/links/shorten";
@@ -127,6 +128,11 @@ export async function handlePublishPost(payload: PublishPayload, jobId: number):
         Math.floor(Date.now() / 1000),
         postId,
       );
+    // Queued rather than awaited: the post is live, and a failed comment must
+    // not retry the publish and duplicate it.
+    if (post.firstComment) {
+      enqueue("first_comment", { postId });
+    }
     complete(jobId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -218,6 +224,9 @@ export async function handleJob(kind: string, payload: Record<string, unknown>, 
       return;
     case "refresh_token":
       await handleRefreshToken(payload as unknown as RefreshTokenPayload, jobId);
+      return;
+    case "first_comment":
+      await handleFirstComment(payload as unknown as FirstCommentPayload, jobId);
       return;
     default:
       fail(jobId, `unknown job kind: ${kind}`);

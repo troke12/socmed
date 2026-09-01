@@ -14,6 +14,7 @@ import { countComposeText, validateComposeMedia, getContentRules } from "@/lib/p
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { MediaGrid, type LibraryItem } from "@/components/media/MediaGrid";
 import { nextOccurrence, WEEKDAY_NAMES, type Slot } from "@/lib/analytics/best-time";
+import { supportsFirstComment } from "@/lib/platforms/capabilities";
 
 interface Account {
   id: number;
@@ -52,6 +53,7 @@ export function ComposeView() {
   const [hashtags, setHashtags] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [campaign, setCampaign] = useState("");
+  const [firstComment, setFirstComment] = useState("");
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [scheduledFor, setScheduledFor] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +122,8 @@ export function ComposeView() {
         const j = (await res.json()) as {
           post: {
             id: number; accountId: number; status: string; caption: string;
-            hashtags: string; linkUrl: string | null; campaign: string | null; scheduledFor: number | null;
+            hashtags: string; linkUrl: string | null; campaign: string | null;
+            firstComment: string | null; scheduledFor: number | null;
             reviewStatus: "none" | "pending" | "approved" | "rejected";
             reviewNote: string | null;
           };
@@ -139,6 +142,7 @@ export function ComposeView() {
         setHashtags(j.post.hashtags);
         setLinkUrl(j.post.linkUrl ?? "");
         setCampaign(j.post.campaign ?? "");
+        setFirstComment(j.post.firstComment ?? "");
         setMedia(j.media);
         setScheduledFor(j.post.scheduledFor ? toLocalInput(j.post.scheduledFor) : "");
         setReviewStatus(j.post.reviewStatus);
@@ -175,6 +179,12 @@ export function ComposeView() {
     : null;
   const selectedCount = tightest?.result ?? null;
   const platformMeta = tightest ? getPlatform(tightest.platform) : undefined;
+
+  // Named up front so the warning below the field can be honest about which of
+  // the selected targets will silently skip it.
+  const unsupportedFirstComment = selectedPlatforms
+    .filter((p) => !supportsFirstComment(p))
+    .map((p) => getPlatform(p)?.name ?? p);
 
   function toggleAccount(id: number): void {
     // Editing targets exactly one existing row, so selection stays single there.
@@ -275,6 +285,7 @@ export function ComposeView() {
         hashtags,
         linkUrl: linkUrl || null,
         campaign: campaign.trim() || null,
+        firstComment: firstComment.trim() || null,
         mediaIds: media.map((m) => m.id),
         scheduledFor: action === "schedule" ? scheduledTs : null,
       };
@@ -327,7 +338,8 @@ export function ComposeView() {
       // Clearing is right after creating a post, but destructive when editing —
       // the fields still reflect the row that was just saved.
       if (!postId) {
-        setCaption(""); setHashtags(""); setLinkUrl(""); setCampaign(""); setMedia([]); setScheduledFor("");
+        setCaption(""); setHashtags(""); setLinkUrl(""); setCampaign("");
+        setFirstComment(""); setMedia([]); setScheduledFor("");
       }
     } finally {
       setBusy(false);
@@ -464,6 +476,24 @@ export function ComposeView() {
                     left alone.
                   </p>
                 </>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="first-comment">First comment (optional)</Label>
+              <Textarea
+                id="first-comment"
+                rows={2}
+                placeholder="Posted right after publishing — where Instagram hashtags usually go"
+                value={firstComment}
+                onChange={(e) => setFirstComment(e.target.value)}
+                className="resize-none"
+              />
+              {firstComment.trim() && unsupportedFirstComment.length > 0 && (
+                <p className="text-xs text-destructive">
+                  {unsupportedFirstComment.join(", ")} cannot post comments through this app yet, so
+                  the first comment will be skipped there. The post itself still publishes.
+                </p>
               )}
             </div>
 

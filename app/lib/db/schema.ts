@@ -91,6 +91,8 @@ export const posts = sqliteTable(
     hashtags: text("hashtags").notNull().default(""),
     linkUrl: text("link_url"),
     campaign: text("campaign"),
+    firstComment: text("first_comment"),
+    firstCommentPostedAt: integer("first_comment_posted_at"),
     scheduledFor: integer("scheduled_for"),
     publishedAt: integer("published_at"),
     platformPostId: text("platform_post_id"),
@@ -282,4 +284,11 @@ export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type ScheduleRule = typeof scheduleRules.$inferSelect;
 export type ShortLink = typeof shortLinks.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
-export type JobKind = "publish_post" | "fetch_metrics" | "fetch_mentions" | "post_comment" | "refresh_token" | "schedule_rule";
+export type JobKind =
+  | "publish_post"
+  | "fetch_metrics"
+  | "fetch_mentions"
+  | "post_comment"
+  | "first_comment"
+  | "refresh_token"
+  | "schedule_rule";

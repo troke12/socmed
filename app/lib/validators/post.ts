@@ -6,6 +6,7 @@ const PostFields = z.object({
   hashtags: z.string().max(2000).default(""),
   linkUrl: z.string().url().max(2000).optional().nullable(),
   campaign: z.string().max(200).optional().nullable(),
+  firstComment: z.string().max(2000).optional().nullable(),
   mediaIds: z.array(z.number().int().positive()).max(10).default([]),
   scheduledFor: z.number().int().positive().optional().nullable(),
 });

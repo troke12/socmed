@@ -11,6 +11,7 @@ import {
   xVerifyWebhookSignature,
   xUploadMedia,
 } from "./client";
+import { unsupportedCommentReply } from "../capabilities";
 
 export const xAdapter: PlatformAdapter = {
   platform: "x",
@@ -53,7 +54,11 @@ export const xAdapter: PlatformAdapter = {
   },
   async fetchMentions() { return { mentions: [] }; },
   async fetchComments(): Promise<Comment[]> { return []; },
-  async postCommentReply() { return { platformCommentId: "" }; },
+  async postCommentReply() {
+    // Returned a fake success before, which marked replies as sent that were
+    // never delivered. See #32.
+    return unsupportedCommentReply("x");
+  },
   async likeTarget() { /* noop */ },
   verifyWebhookSignature: xVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers): WebhookEvent[] => {
