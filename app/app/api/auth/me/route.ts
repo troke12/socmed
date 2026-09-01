@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@db/client";
 import { users } from "@db/schema";
 import { parseSessionCookie, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { approvalRequired } from "@/lib/review";
 
 export const runtime = "nodejs";
 
@@ -17,5 +18,8 @@ export async function GET(req: NextRequest) {
     .get();
   // A disabled user still holds a valid cookie; report them as signed out.
   if (!row || row.disabled) return NextResponse.json({ user: null }, { status: 200 });
-  return NextResponse.json({ user: { id: row.id, username: row.username, role: row.role } });
+  return NextResponse.json({
+    user: { id: row.id, username: row.username, role: row.role },
+    approvalRequired: approvalRequired(),
+  });
 }
