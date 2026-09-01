@@ -24,6 +24,10 @@ beforeAll(async () => {
   sqlite.exec("PRAGMA journal_mode = WAL");
   const { runMigrations } = await import("@db/migrate");
   await runMigrations();
+  // posts.author_id is a real FK, and the mocked session claims user 1.
+  sqlite
+    .prepare(`INSERT INTO users (id, username, password_hash, role, created_at) VALUES (1, 'admin', 'x', 'admin', ?)`)
+    .run(Math.floor(Date.now() / 1000));
   await import("@/app/api/posts/route");
 }, 120_000);
 

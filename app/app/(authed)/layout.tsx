@@ -12,6 +12,7 @@ import {
   Repeat,
   Images,
   UserCog,
+  ClipboardCheck,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -27,6 +28,7 @@ const NAV: { href: string; label: string; icon: typeof Users; minRole: Role }[] 
   { href: "/schedules", label: "Schedules", icon: Repeat, minRole: "viewer" },
   { href: "/analytics", label: "Analytics", icon: BarChart3, minRole: "viewer" },
   { href: "/inbox", label: "Inbox", icon: Inbox, minRole: "viewer" },
+  { href: "/review", label: "Review", icon: ClipboardCheck, minRole: "admin" },
   { href: "/users", label: "Users", icon: UserCog, minRole: "admin" },
 ];
 
