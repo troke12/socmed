@@ -10,6 +10,7 @@ import {
   BarChart3,
   Inbox,
   Repeat,
+  Images,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/setup", label: "Setup Wizard", icon: LayoutGrid },
   { href: "/accounts", label: "Accounts", icon: Users },
   { href: "/compose", label: "Compose", icon: PenSquare },
+  { href: "/media", label: "Media", icon: Images },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/schedules", label: "Schedules", icon: Repeat },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
