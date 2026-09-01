@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ComposeView } from "@/components/compose/ComposeView";
 
 export default function ComposePage() {
@@ -9,7 +10,11 @@ export default function ComposePage() {
           Draft a post, attach media, pick an account, and publish or schedule.
         </p>
       </div>
-      <ComposeView />
+      {/* ComposeView reads ?id= via useSearchParams, which Next requires to sit
+          under a Suspense boundary. */}
+      <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+        <ComposeView />
+      </Suspense>
     </div>
   );
 }
