@@ -8,6 +8,11 @@ export const users = sqliteTable("users", {
     .notNull()
     .default("viewer"),
   disabled: integer("disabled").notNull().default(0),
+  totpSecret: blob("totp_secret", { mode: "buffer" }),
+  totpIv: blob("totp_iv", { mode: "buffer" }),
+  totpTag: blob("totp_tag", { mode: "buffer" }),
+  totpEnabled: integer("totp_enabled").notNull().default(0),
+  totpLastStep: integer("totp_last_step"),
   createdAt: integer("created_at").notNull(),
 });
 

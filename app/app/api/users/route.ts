@@ -39,6 +39,7 @@ export async function GET() {
       username: users.username,
       role: users.role,
       disabled: users.disabled,
+      totpEnabled: users.totpEnabled,
       createdAt: users.createdAt,
     })
     .from(users)
