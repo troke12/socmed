@@ -11,8 +11,15 @@ function getSecret(): string {
   return s;
 }
 
-function sign(payload: string): string {
-  return createHmac("sha256", getSecret()).update(payload).digest("base64url");
+// `kind` is mixed into the signed content, not just the payload. That is what
+// keeps a half-authenticated TOTP token from ever verifying as a full session:
+// the two HMACs are computed over different strings, so neither token's
+// signature validates under the other's parser. Session signing is unchanged
+// (kind "") so existing cookies keep working across the upgrade.
+function sign(payload: string, kind = ""): string {
+  return createHmac("sha256", getSecret())
+    .update(kind ? `${kind}.${payload}` : payload)
+    .digest("base64url");
 }
 
 function safeEq(a: string, b: string): boolean {
@@ -38,14 +45,46 @@ export function createSessionCookie(uid: number): string {
 }
 
 export function parseSessionCookie(cookie: string | undefined | null): SessionPayload | null {
+  return parseSigned<SessionPayload>(cookie, "");
+}
+
+// Second-factor handoff. Short-lived on purpose: it stands in for a verified
+// password, so it should not outlive the few seconds it takes to read a code
+// off a phone.
+export const PENDING_TOTP_COOKIE_NAME = "socmed_totp_pending";
+export const PENDING_TOTP_MAX_AGE = 5 * 60;
+const PENDING_KIND = "totp";
+
+export interface PendingTotpPayload {
+  uid: number;
+  exp: number;
+}
+
+export function createPendingTotpCookie(uid: number): string {
+  const payload: PendingTotpPayload = {
+    uid,
+    exp: Math.floor(Date.now() / 1000) + PENDING_TOTP_MAX_AGE,
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${body}.${sign(body, PENDING_KIND)}`;
+}
+
+export function parsePendingTotpCookie(cookie: string | undefined | null): PendingTotpPayload | null {
+  return parseSigned<PendingTotpPayload>(cookie, PENDING_KIND);
+}
+
+function parseSigned<T extends { uid: number; exp: number }>(
+  cookie: string | undefined | null,
+  kind: string,
+): T | null {
   if (!cookie) return null;
   const dot = cookie.indexOf(".");
   if (dot < 0) return null;
   const body = cookie.slice(0, dot);
   const sig = cookie.slice(dot + 1);
-  if (!safeEq(sig, sign(body))) return null;
+  if (!safeEq(sig, sign(body, kind))) return null;
   try {
-    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as SessionPayload;
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as T;
     if (typeof payload.uid !== "number" || typeof payload.exp !== "number") return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;

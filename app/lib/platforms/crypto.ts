@@ -13,10 +13,13 @@ function getMasterKey(): Buffer {
   return buf;
 }
 
-function deriveKey(accountId: number): Buffer {
+// Domain separation: `scope` goes into the HKDF info, so the key protecting
+// account 7's tokens is unrelated to the key protecting user 7's TOTP secret
+// even though the ids collide.
+function deriveKey(id: number, scope = "socmed-account"): Buffer {
   const master = getMasterKey();
-  // HKDF-SHA256, 32 bytes, info binds the key to the account
-  const derived = hkdfSync("sha256", master, Buffer.from(String(accountId)), Buffer.from("socmed-account"), 32);
+  // HKDF-SHA256, 32 bytes, info binds the key to the scope + id
+  const derived = hkdfSync("sha256", master, Buffer.from(String(id)), Buffer.from(scope), 32);
   return Buffer.from(derived);
 }
 
@@ -27,7 +30,11 @@ export interface Ciphertext {
 }
 
 export function encryptJson(accountId: number, payload: unknown): Ciphertext {
-  const key = deriveKey(accountId);
+  return encryptJsonScoped("socmed-account", accountId, payload);
+}
+
+export function encryptJsonScoped(scope: string, id: number, payload: unknown): Ciphertext {
+  const key = deriveKey(id, scope);
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv(ALGO, key, iv);
   const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
@@ -38,7 +45,11 @@ export function encryptJson(accountId: number, payload: unknown): Ciphertext {
 }
 
 export function decryptJson<T = unknown>(accountId: number, ct: Ciphertext): T {
-  const key = deriveKey(accountId);
+  return decryptJsonScoped<T>("socmed-account", accountId, ct);
+}
+
+export function decryptJsonScoped<T = unknown>(scope: string, id: number, ct: Ciphertext): T {
+  const key = deriveKey(id, scope);
   const decipher = createDecipheriv(ALGO, key, ct.iv);
   decipher.setAuthTag(ct.tag);
   const plain = Buffer.concat([decipher.update(ct.ciphertext), decipher.final()]);

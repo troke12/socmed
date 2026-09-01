@@ -12,6 +12,10 @@ export function LoginForm({ next }: { next: string }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Once the password checks out the server holds a short-lived pending cookie,
+  // so the second leg sends only the code — the password is never resent.
+  const [stage, setStage] = useState<"password" | "totp">("password");
+  const [code, setCode] = useState("");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,11 +25,20 @@ export function LoginForm({ next }: { next: string }) {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(stage === "totp" ? { totp: code } : { username, password }),
       });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; needsTotp?: boolean };
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
         setError(j.error ?? "login failed");
+        // An expired hand-off has to start over from the password.
+        if (res.status === 401 && stage === "totp" && j.error?.includes("sign in again")) {
+          setStage("password");
+          setCode("");
+        }
+        return;
+      }
+      if (j.needsTotp) {
+        setStage("totp");
         return;
       }
       router.push(next);
@@ -35,6 +48,39 @@ export function LoginForm({ next }: { next: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (stage === "totp") {
+    return (
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="totp">Authentication code</Label>
+          <Input
+            id="totp"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="123456"
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">
+            From your authenticator app. Codes are valid for about a minute.
+          </p>
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <Button type="submit" disabled={busy || code.length < 6} className="w-full">
+          {busy ? "Verifying..." : "Verify"}
+        </Button>
+        <button
+          type="button"
+          className="w-full text-xs text-muted-foreground underline"
+          onClick={() => { setStage("password"); setCode(""); setError(null); }}
+        >
+          Back
+        </button>
+      </form>
+    );
   }
 
   return (
