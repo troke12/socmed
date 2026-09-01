@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { mediaAssets } from "@db/schema";
-import { requireSession } from "@/lib/auth/require";
+import { requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { storeBuffer, uploadsDir } from "@/lib/media/storage";
 import { probeImage, probeVideo, generateVideoPoster } from "@/lib/media/probe";
 import { join } from "node:path";
@@ -29,9 +30,7 @@ const EXT_BY_MIME: Record<string, string> = {
 };
 
 export async function POST(req: Request) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("editor"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
 
   const form = await req.formData().catch(() => null);

@@ -4,7 +4,8 @@ import { z } from "zod";
 import { db } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { scheduleRules, accounts, posts } from "@db/schema";
-import { requireSession } from "@/lib/auth/require";
+import { requireSession, requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { CreateScheduleBody, UpdateScheduleBody } from "@/lib/validators/schedule";
 import { nextCronRun } from "@/lib/schedule/cron";
 import { enqueue } from "@/lib/queue/enqueue";
@@ -46,9 +47,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("editor"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
   const raw = (await readJson(req)) as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object") {

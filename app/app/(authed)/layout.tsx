@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { SESSION_COOKIE_NAME, parseSessionCookie } from "@/lib/auth/session";
+import { trySession } from "@/lib/auth/require";
 import { logoutAction } from "@/app/(authed)/actions";
+import { atLeast, type Role } from "@/lib/auth/roles";
 import {
   Users,
   PenSquare,
@@ -11,25 +11,31 @@ import {
   Inbox,
   Repeat,
   Images,
+  UserCog,
   LogOut,
   LayoutGrid,
 } from "lucide-react";
 
-const NAV = [
-  { href: "/setup", label: "Setup Wizard", icon: LayoutGrid },
-  { href: "/accounts", label: "Accounts", icon: Users },
-  { href: "/compose", label: "Compose", icon: PenSquare },
-  { href: "/media", label: "Media", icon: Images },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/schedules", label: "Schedules", icon: Repeat },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/inbox", label: "Inbox", icon: Inbox },
+// `minRole` hides a link the user cannot use. It is presentation only — each
+// page and API route enforces the same rule again on the server.
+const NAV: { href: string; label: string; icon: typeof Users; minRole: Role }[] = [
+  { href: "/setup", label: "Setup Wizard", icon: LayoutGrid, minRole: "admin" },
+  { href: "/accounts", label: "Accounts", icon: Users, minRole: "viewer" },
+  { href: "/compose", label: "Compose", icon: PenSquare, minRole: "editor" },
+  { href: "/media", label: "Media", icon: Images, minRole: "viewer" },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays, minRole: "viewer" },
+  { href: "/schedules", label: "Schedules", icon: Repeat, minRole: "viewer" },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, minRole: "viewer" },
+  { href: "/inbox", label: "Inbox", icon: Inbox, minRole: "viewer" },
+  { href: "/users", label: "Users", icon: UserCog, minRole: "admin" },
 ];
 
 export default async function AuthedLayout({ children }: { children: React.ReactNode }) {
-  const cookie = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  const session = parseSessionCookie(cookie);
-  if (!session) redirect("/login");
+  // trySession resolves the cookie against a live user row, so a deleted or
+  // disabled account is bounced to /login on its very next navigation.
+  const user = await trySession();
+  if (!user) redirect("/login");
+  const nav = NAV.filter((item) => atLeast(user.role, item.minRole));
 
   return (
     <div className="flex min-h-screen">
@@ -42,7 +48,7 @@ export default async function AuthedLayout({ children }: { children: React.React
           <span className="text-sm font-semibold">socmed</span>
         </div>
         <nav className="flex-1 space-y-1 p-3">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -54,6 +60,9 @@ export default async function AuthedLayout({ children }: { children: React.React
           ))}
         </nav>
         <div className="border-t p-3">
+          <div className="px-3 pb-2 text-xs text-muted-foreground">
+            {user.username} · {user.role}
+          </div>
           <form action={logoutAction}>
             <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive">
               <LogOut className="h-4 w-4" />
@@ -72,7 +81,7 @@ export default async function AuthedLayout({ children }: { children: React.React
           </div>
           <span className="text-sm font-semibold">socmed</span>
           <div className="ml-auto flex gap-1">
-            {NAV.map((item) => (
+            {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

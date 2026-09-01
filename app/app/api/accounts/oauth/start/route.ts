@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth/require";
+import { requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { getAdapter } from "@platforms/registry";
 import "@platforms/bootstrap";
 import { mastodonBeginOAuth } from "@platforms/mastodon/client";
@@ -30,8 +31,8 @@ function safeRedirect(raw: string | undefined): string {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
+  try { await requireRole("admin"); } catch (e) {
+    return authErrorResponse(e);
   }
   const body = await req.json().catch(() => null);
   const parsed = Body.safeParse(body);
