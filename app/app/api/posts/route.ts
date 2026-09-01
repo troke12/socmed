@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@db/client";
+import { db, sqlite } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { posts, postMedia, accounts, mediaAssets } from "@db/schema";
 import { requireSession } from "@/lib/auth/require";
@@ -93,41 +93,67 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
     }
-    const { accountId, kind, caption, hashtags, linkUrl, mediaIds, scheduledFor } = parsed.data;
-    const account = db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, accountId)).get();
-    if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
+    const { accountId, accountIds, kind, caption, hashtags, linkUrl, mediaIds, scheduledFor } = parsed.data;
+
+    // One post row per target account. A parent/children model was the
+    // alternative, but a flat row per account keeps every existing per-account
+    // query — analytics, calendar, publish — working without a join.
+    const targets = [...new Set(accountIds ?? (accountId !== undefined ? [accountId] : []))];
+    const found = db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(inArray(accounts.id, targets))
+      .all();
+    if (found.length !== targets.length) {
+      const missing = targets.filter((t) => !found.some((f) => f.id === t));
+      return NextResponse.json({ error: `account not found: ${missing.join(", ")}` }, { status: 404 });
+    }
 
     const now = Math.floor(Date.now() / 1000);
     const status = scheduledFor && scheduledFor > now ? "scheduled" : "draft";
 
-    const created = db
-      .insert(posts)
-      .values({
-        accountId,
-        kind,
-        status,
-        caption,
-        hashtags,
-        linkUrl: linkUrl ?? null,
-        scheduledFor: status === "scheduled" ? scheduledFor : null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: posts.id })
-      .get();
-
-    if (!created) return NextResponse.json({ error: "failed to create post" }, { status: 500 });
-
-    for (let i = 0; i < mediaIds.length; i++) {
-      const mediaId = mediaIds[i]!;
-      db.insert(postMedia).values({ postId: created.id, mediaId, position: i }).run();
+    // All-or-nothing: a fan-out that fails halfway would publish to some
+    // platforms and silently drop the rest, with no record of what was missed.
+    let ids: number[] = [];
+    try {
+      ids = sqlite.transaction(() => {
+        const out: number[] = [];
+        for (const target of targets) {
+          const created = db
+            .insert(posts)
+            .values({
+              accountId: target,
+              kind,
+              status,
+              caption,
+              hashtags,
+              linkUrl: linkUrl ?? null,
+              scheduledFor: status === "scheduled" ? scheduledFor : null,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning({ id: posts.id })
+            .get();
+          if (!created) throw new Error("failed to create post");
+          for (let i = 0; i < mediaIds.length; i++) {
+            db.insert(postMedia).values({ postId: created.id, mediaId: mediaIds[i]!, position: i }).run();
+          }
+          if (status === "scheduled" && scheduledFor) {
+            enqueue("publish_post", { postId: created.id }, { runAt: scheduledFor });
+          }
+          out.push(created.id);
+        }
+        return out;
+      })();
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "failed to create post" },
+        { status: 500 },
+      );
     }
 
-    if (status === "scheduled" && scheduledFor) {
-      enqueue("publish_post", { postId: created.id }, { runAt: scheduledFor });
-    }
-
-    return NextResponse.json({ id: created.id, status }, { status: 201 });
+    // `id` stays in the response for single-target callers that already read it.
+    return NextResponse.json({ ids, id: ids[0], status }, { status: 201 });
   }
 
   // --- update ---

@@ -9,13 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { getPlatform, type PlatformId } from "@/lib/platform-meta";
 import { countComposeText, validateComposeMedia, getContentRules } from "@/lib/platforms/content-rules";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -50,9 +43,9 @@ export function ComposeView() {
   const editId = Number(searchParams.get("id")) || null;
 
   const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [accountIds, setAccountIds] = useState<number[]>([]);
   const [postId, setPostId] = useState<number | null>(null);
   const [loadingPost, setLoadingPost] = useState(false);
-  const [accountId, setAccountId] = useState<number | null>(null);
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -69,9 +62,9 @@ export function ComposeView() {
       const j = (await res.json()) as { accounts: Account[] };
       const active = j.accounts.filter((a) => a.status === "active");
       setAccounts(active);
-      if (!accountId && active[0]) setAccountId(active[0].id);
+      setAccountIds((cur) => (cur.length > 0 || !active[0] ? cur : [active[0].id]));
     }
-  }, [accountId]);
+  }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -102,7 +95,7 @@ export function ComposeView() {
           return;
         }
         setPostId(j.post.id);
-        setAccountId(j.post.accountId);
+        setAccountIds([j.post.accountId]);
         setCaption(j.post.caption);
         setHashtags(j.post.hashtags);
         setLinkUrl(j.post.linkUrl ?? "");
@@ -116,10 +109,36 @@ export function ComposeView() {
   }, [editId]);
 
   const kind = media.length === 0 ? "text" : media.length > 1 ? "carousel" : media[0]!.kind === "image" ? "image" : "video";
-  const selectedPlatform = accounts?.find((a) => a.id === accountId)?.platform as PlatformId | undefined;
-  const platformMeta = selectedPlatform ? getPlatform(selectedPlatform) : undefined;
+  const selectedAccounts = (accounts ?? []).filter((a) => accountIds.includes(a.id));
+  const selectedPlatforms = Array.from(
+    new Set(selectedAccounts.map((a) => a.platform as PlatformId)),
+  );
   const mediaKinds = media.map((m) => ({ kind: m.kind }));
-  const selectedCount = selectedPlatform ? countComposeText(selectedPlatform, { caption, hashtags, linkUrl }) : null;
+
+  // With several targets the caption has to satisfy the strictest of them, so
+  // the counter shows the platform closest to (or furthest past) its limit
+  // rather than an arbitrary one.
+  const counts = selectedPlatforms.map((p) => ({
+    platform: p,
+    result: countComposeText(p, { caption, hashtags, linkUrl }),
+  }));
+  const tightest = counts.length
+    ? counts.reduce((worst, c) => {
+        if (c.result.overBy !== worst.result.overBy) {
+          return c.result.overBy > worst.result.overBy ? c : worst;
+        }
+        const remaining = (r: typeof c.result) => (r.limit ? r.limit - r.count : Number.MAX_SAFE_INTEGER);
+        return remaining(c.result) < remaining(worst.result) ? c : worst;
+      })
+    : null;
+  const selectedCount = tightest?.result ?? null;
+  const platformMeta = tightest ? getPlatform(tightest.platform) : undefined;
+
+  function toggleAccount(id: number): void {
+    // Editing targets exactly one existing row, so selection stays single there.
+    if (postId) { setAccountIds([id]); return; }
+    setAccountIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  }
 
   // One preview card per unique platform among the connected accounts —
   // "write once, publish to any platform" needs to show how the same
@@ -143,18 +162,23 @@ export function ComposeView() {
   }
 
   async function onSubmit(action: "draft" | "schedule" | "publish") {
-    if (!accountId) { setError("pick an account first"); return; }
+    if (accountIds.length === 0) { setError("pick at least one account first"); return; }
     // Drafts can stay over-limit while still being edited; publishing or
-    // scheduling must respect the target platform's rules since both will
-    // eventually hit the real API.
-    if (action !== "draft" && selectedPlatform && selectedCount) {
-      const mediaCheck = validateComposeMedia(selectedPlatform, mediaKinds);
-      if (selectedCount.overBy > 0) {
-        setError(`Caption is ${selectedCount.overBy} ${selectedCount.unit} over ${platformMeta?.name}'s limit — trim it or save as a draft instead.`);
-        return;
+    // scheduling must respect every target platform's rules, since each one
+    // will eventually hit its real API.
+    if (action !== "draft") {
+      const blockers: string[] = [];
+      for (const platform of selectedPlatforms) {
+        const name = getPlatform(platform)?.name ?? platform;
+        const count = countComposeText(platform, { caption, hashtags, linkUrl });
+        if (count.overBy > 0) {
+          blockers.push(`${name}: caption is ${count.overBy} ${count.unit} over the limit.`);
+        }
+        const mediaCheck = validateComposeMedia(platform, mediaKinds);
+        if (!mediaCheck.ok) blockers.push(`${name}: ${mediaCheck.issues.join(" ")}`);
       }
-      if (!mediaCheck.ok) {
-        setError(mediaCheck.issues.join(" "));
+      if (blockers.length > 0) {
+        setError(`${blockers.join(" ")} Trim it, deselect that account, or save as a draft instead.`);
         return;
       }
     }
@@ -162,7 +186,7 @@ export function ComposeView() {
     try {
       const scheduledTs = scheduledFor ? Math.floor(new Date(scheduledFor).getTime() / 1000) : null;
       const fields = {
-        accountId,
+        accountIds,
         kind,
         caption,
         hashtags,
@@ -180,29 +204,41 @@ export function ComposeView() {
         setError(j.error ?? (postId ? "update failed" : "create failed"));
         return;
       }
-      // Create returns the new id; update only returns { ok: true }.
-      const j = (await res.json()) as { id?: number };
-      const savedId = postId ?? j.id;
-      if (savedId === undefined) {
+      // Create returns one id per target; update only returns { ok: true }.
+      const j = (await res.json()) as { ids?: number[] };
+      const savedIds = postId ? [postId] : j.ids ?? [];
+      if (savedIds.length === 0) {
         setError("server did not return a post id");
         return;
       }
       if (action === "publish") {
-        const pub = await fetch("/api/posts", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "publish_now", id: savedId }),
-        });
-        if (!pub.ok) {
-          const jj = (await pub.json().catch(() => ({}))) as { error?: string };
-          setError(jj.error ?? "publish failed");
+        // One publish call per target. They are issued in sequence so a failure
+        // reports which account it belongs to instead of a bare rejection.
+        const failures: string[] = [];
+        for (const id of savedIds) {
+          const pub = await fetch("/api/posts", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "publish_now", id }),
+          });
+          if (!pub.ok) {
+            const jj = (await pub.json().catch(() => ({}))) as { error?: string };
+            failures.push(`#${id}: ${jj.error ?? "publish failed"}`);
+          }
+        }
+        if (failures.length > 0) {
+          setError(
+            failures.length === savedIds.length
+              ? `Publish failed — ${failures.join("; ")}`
+              : `Queued ${savedIds.length - failures.length} of ${savedIds.length}. Failed — ${failures.join("; ")}`,
+          );
           return;
         }
-        setInfo("Post queued for publishing ✓");
+        setInfo(savedIds.length > 1 ? `Queued for ${savedIds.length} accounts ✓` : "Post queued for publishing ✓");
       } else if (action === "schedule") {
-        setInfo(postId ? "Schedule updated ✓" : "Post scheduled ✓");
+        setInfo(postId ? "Schedule updated ✓" : `Scheduled for ${savedIds.length} account${savedIds.length > 1 ? "s" : ""} ✓`);
       } else {
-        setInfo(postId ? "Changes saved ✓" : "Draft saved ✓");
+        setInfo(postId ? "Changes saved ✓" : `Draft saved for ${savedIds.length} account${savedIds.length > 1 ? "s" : ""} ✓`);
       }
       // Clearing is right after creating a post, but destructive when editing —
       // the fields still reflect the row that was just saved.
@@ -234,25 +270,57 @@ export function ComposeView() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Account</Label>
+              <div className="flex items-center justify-between">
+                <Label>{postId ? "Account" : "Accounts"}</Label>
+                {!postId && accounts.length > 1 && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground underline hover:text-foreground"
+                    onClick={() =>
+                      setAccountIds(accountIds.length === accounts.length ? [] : accounts.map((a) => a.id))
+                    }
+                  >
+                    {accountIds.length === accounts.length ? "Clear all" : "Select all"}
+                  </button>
+                )}
+              </div>
               {accounts.length === 0 ? (
                 <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
                   No active accounts.{" "}
                   <a href="/accounts" className="text-primary underline">Connect one first →</a>
                 </div>
               ) : (
-                <Select value={accountId ? String(accountId) : undefined} onValueChange={(v) => setAccountId(Number(v))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick an account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {getPlatform(a.platform)?.name ?? a.platform} · {a.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {accounts.map((a) => {
+                    const meta = getPlatform(a.platform as PlatformId);
+                    const on = accountIds.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => toggleAccount(a.id)}
+                        className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                          on ? "border-primary bg-primary/10" : "hover:bg-accent"
+                        }`}
+                      >
+                        {meta && <FontAwesomeIcon icon={meta.icon} className="h-3.5 w-3.5 shrink-0" />}
+                        <span className="min-w-0 flex-1 truncate">{a.label}</span>
+                        {on && <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {!postId && accountIds.length > 1 && (
+                <p className="text-xs text-muted-foreground">
+                  Creates {accountIds.length} separate posts — one per account — so each keeps its own
+                  metrics and platform post URL.
+                </p>
+              )}
+              {postId && (
+                <p className="text-xs text-muted-foreground">
+                  Editing one existing post, so only a single account applies here.
+                </p>
               )}
             </div>
 
@@ -323,7 +391,7 @@ export function ComposeView() {
               <Button variant="outline" size="sm" disabled={busy || !scheduledFor} onClick={() => void onSubmit("schedule")}>
                 <CalendarClock className="h-4 w-4" /> Schedule
               </Button>
-              <Button size="sm" className="ml-auto" disabled={busy || !accountId} onClick={() => void onSubmit("publish")}>
+              <Button size="sm" className="ml-auto" disabled={busy || accountIds.length === 0} onClick={() => void onSubmit("publish")}>
                 <Send className="h-4 w-4" /> Publish now
               </Button>
             </div>
@@ -413,7 +481,7 @@ export function ComposeView() {
                 hashtags={hashtags}
                 linkUrl={linkUrl}
                 media={media}
-                isTarget={platformId === selectedPlatform}
+                isTarget={selectedPlatforms.includes(platformId)}
               />
             ))}
           </CardContent>
