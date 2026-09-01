@@ -18,7 +18,14 @@ beforeAll(async () => {
   sqlite.exec("PRAGMA journal_mode = WAL");
   const { runMigrations } = await import("@db/migrate");
   await runMigrations();
-});
+  // Warm the module graph here rather than inside the first test. Importing
+  // handlers pulls in platforms/bootstrap, which loads all 12 adapters, and on a
+  // cold cache that alone can outlast a single test's timeout — leaving whichever
+  // test happens to run first to fail for reasons that have nothing to do with it.
+  await import("@/lib/queue/handlers");
+  await import("@/lib/queue/tokens");
+  await import("@/lib/schedule/rules");
+}, 120_000);
 
 afterAll(() => {
   if (ORIGINAL_DB !== undefined) process.env.SOCMED_DB_PATH = ORIGINAL_DB;
@@ -247,5 +254,103 @@ describe("handleRefreshToken", () => {
     // Closed out immediately rather than burning five backoff cycles on it.
     expect(job.status).toBe("done");
     expect(job.attempts).toBe(1);
+  });
+});
+
+describe("schedule rule firing", () => {
+  it("advances next_run_at to the real next cron occurrence", async () => {
+    const { sqlite } = await import("@db/client");
+    const { enqueue } = await import("@/lib/queue/enqueue");
+    const { claimNext } = await import("@/lib/queue/claim");
+    const { handleJob } = await import("@/lib/queue/handlers");
+
+    const accountId = await seedAccount("cron-advance");
+    const now = Math.floor(Date.now() / 1000);
+    sqlite
+      .prepare(
+        `INSERT INTO schedule_rules (id, account_id, name, cron_expr, timezone, enabled, next_run_at, created_at)
+         VALUES (600, ?, 'daily 9am', '0 9 * * *', 'UTC', 1, ?, ?)`,
+      )
+      .run(accountId, now - 60, now);
+
+    const jobId = enqueue("schedule_rule", { ruleId: 600 });
+    claimNext(now + 1);
+    await handleJob("schedule_rule", { ruleId: 600 }, jobId);
+
+    const rule = sqlite
+      .prepare(`SELECT next_run_at, last_run_at, enabled FROM schedule_rules WHERE id = 600`)
+      .get() as { next_run_at: number; last_run_at: number; enabled: number };
+    expect(rule.enabled).toBe(1);
+    expect(rule.next_run_at).toBeGreaterThan(now);
+    // The old placeholder was always now + 3600; a real 09:00 UTC rule must land
+    // on a 09:00 UTC boundary instead.
+    expect(rule.next_run_at % 86400).toBe(9 * 3600);
+    expect(rule.last_run_at).toBeGreaterThanOrEqual(now);
+
+    // The occurrence itself publishes now, not an hour out.
+    const post = sqlite
+      .prepare(`SELECT id, status, scheduled_for FROM posts WHERE account_id = ? ORDER BY id DESC LIMIT 1`)
+      .get(accountId) as { id: number; status: string; scheduled_for: number };
+    expect(post.status).toBe("scheduled");
+    expect(post.scheduled_for).toBeLessThanOrEqual(now + 5);
+
+    const publishJob = sqlite
+      .prepare(`SELECT run_at FROM jobs WHERE kind = 'publish_post' AND payload = ?`)
+      .get(JSON.stringify({ postId: post.id })) as { run_at: number } | undefined;
+    expect(publishJob).toBeDefined();
+    expect(publishJob!.run_at).toBeLessThanOrEqual(now + 5);
+  });
+
+  it("disables a rule whose cron expression is unusable", async () => {
+    const { sqlite } = await import("@db/client");
+    const { enqueue } = await import("@/lib/queue/enqueue");
+    const { claimNext } = await import("@/lib/queue/claim");
+    const { handleJob } = await import("@/lib/queue/handlers");
+
+    const accountId = await seedAccount("cron-broken");
+    const now = Math.floor(Date.now() / 1000);
+    // Bypasses the API validator, which is exactly how a bad row survives: an
+    // older release, a hand-edited DB, or a restored backup.
+    sqlite
+      .prepare(
+        `INSERT INTO schedule_rules (id, account_id, name, cron_expr, timezone, enabled, next_run_at, created_at)
+         VALUES (601, ?, 'broken', 'not a cron', 'UTC', 1, ?, ?)`,
+      )
+      .run(accountId, now - 60, now);
+
+    const jobId = enqueue("schedule_rule", { ruleId: 601 });
+    claimNext(now + 1);
+    await handleJob("schedule_rule", { ruleId: 601 }, jobId);
+
+    const rule = sqlite.prepare(`SELECT enabled FROM schedule_rules WHERE id = 601`).get() as { enabled: number };
+    // Left enabled, the cron poller would refire this rule on every tick forever.
+    expect(rule.enabled).toBe(0);
+    const job = sqlite.prepare(`SELECT last_error FROM jobs WHERE id = ?`).get(jobId) as { last_error: string | null };
+    expect(job.last_error).toContain("expected 5 fields");
+  });
+});
+
+describe("due-work selection", () => {
+  it("enqueues each due rule once, however often it is polled", async () => {
+    const { sqlite } = await import("@db/client");
+    const { enqueueDueRules } = await import("@/lib/schedule/rules");
+
+    const accountId = await seedAccount("due-rules");
+    const now = Math.floor(Date.now() / 1000);
+    sqlite
+      .prepare(
+        `INSERT INTO schedule_rules (id, account_id, name, cron_expr, timezone, enabled, next_run_at, created_at)
+         VALUES (700, ?, 'due', '0 9 * * *', 'UTC', 1, ?, ?), (701, ?, 'later', '0 9 * * *', 'UTC', 1, ?, ?), (702, ?, 'paused', '0 9 * * *', 'UTC', 0, ?, ?)`,
+      )
+      .run(accountId, now - 10, now, accountId, now + 86400, now, accountId, now - 10, now);
+
+    expect(enqueueDueRules(now)).toBe(1);
+    // A rule stays due until its job runs; polling again must not stack a duplicate.
+    expect(enqueueDueRules(now)).toBe(0);
+
+    const jobs = sqlite
+      .prepare(`SELECT COUNT(*) as n FROM jobs WHERE kind = 'schedule_rule' AND payload = ?`)
+      .get(JSON.stringify({ ruleId: 700 })) as { n: number };
+    expect(jobs.n).toBe(1);
   });
 });
