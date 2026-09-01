@@ -9,6 +9,7 @@ import {
   tiktokVerifyWebhookSignature,
   type TikTokPrivacyLevel,
 } from "./client";
+import { unsupportedCommentReply } from "../capabilities";
 
 const PRIVACY_LEVELS: readonly TikTokPrivacyLevel[] = [
   "PUBLIC_TO_EVERYONE",
@@ -53,7 +54,11 @@ export const tiktokAdapter: PlatformAdapter = {
   },
   async fetchMentions(_token: string, _since: number, _ctx: AdapterContext) { return { mentions: [] }; },
   async fetchComments(_id: string, _token: string, _since: number, _ctx: AdapterContext): Promise<Comment[]> { return []; },
-  async postCommentReply(_id: string, _text: string, _token: string, _ctx: AdapterContext) { return { platformCommentId: "" }; },
+  async postCommentReply() {
+    // Returned a fake success before, which marked replies as sent that were
+    // never delivered. See #32.
+    return unsupportedCommentReply("tiktok");
+  },
   async likeTarget(_id: string, _token: string, _ctx: AdapterContext) { /* noop */ },
   verifyWebhookSignature: tiktokVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {

@@ -71,6 +71,8 @@ export async function GET(req: Request) {
       hashtags: posts.hashtags,
       linkUrl: posts.linkUrl,
       campaign: posts.campaign,
+      firstComment: posts.firstComment,
+      firstCommentPostedAt: posts.firstCommentPostedAt,
       scheduledFor: posts.scheduledFor,
       publishedAt: posts.publishedAt,
       platformPostUrl: posts.platformPostUrl,
@@ -113,7 +115,7 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
     }
-    const { accountId, accountIds, kind, caption, hashtags, linkUrl, campaign, mediaIds, scheduledFor } = parsed.data;
+    const { accountId, accountIds, kind, caption, hashtags, linkUrl, campaign, firstComment, mediaIds, scheduledFor } = parsed.data;
 
     // One post row per target account. A parent/children model was the
     // alternative, but a flat row per account keeps every existing per-account
@@ -154,6 +156,7 @@ export async function POST(req: Request) {
               hashtags,
               linkUrl: linkUrl ?? null,
               campaign: campaign ?? null,
+              firstComment: firstComment ?? null,
               scheduledFor: status === "scheduled" || gated ? scheduledFor ?? null : null,
               reviewStatus,
               authorId: actor.id,
@@ -202,6 +205,7 @@ export async function POST(req: Request) {
     if (parsed.data.hashtags !== undefined) updates.hashtags = parsed.data.hashtags;
     if (parsed.data.linkUrl !== undefined) updates.linkUrl = parsed.data.linkUrl;
     if (parsed.data.campaign !== undefined) updates.campaign = parsed.data.campaign;
+    if (parsed.data.firstComment !== undefined) updates.firstComment = parsed.data.firstComment;
     if (parsed.data.kind !== undefined) updates.kind = parsed.data.kind;
     if (parsed.data.mediaIds !== undefined) {
       db.delete(postMedia).where(eq(postMedia.postId, id)).run();

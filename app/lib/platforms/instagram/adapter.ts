@@ -8,6 +8,7 @@ import {
   instagramRefresh,
   instagramVerifyWebhookSignature,
 } from "./client";
+import { unsupportedCommentReply } from "../capabilities";
 
 export const instagramAdapter: PlatformAdapter = {
   platform: "instagram",
@@ -28,7 +29,11 @@ export const instagramAdapter: PlatformAdapter = {
   },
   async fetchMentions(_token: string, _since: number, _ctx: AdapterContext) { return { mentions: [] }; },
   async fetchComments(_id: string, _token: string, _since: number, _ctx: AdapterContext): Promise<Comment[]> { return []; },
-  async postCommentReply(_id: string, _text: string, _token: string, _ctx: AdapterContext) { return { platformCommentId: "" }; },
+  async postCommentReply() {
+    // Returned a fake success before, which marked replies as sent that were
+    // never delivered. See #32.
+    return unsupportedCommentReply("instagram");
+  },
   async likeTarget(_id: string, _token: string, _ctx: AdapterContext) { /* noop */ },
   verifyWebhookSignature: instagramVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {
