@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
-import { requireSession } from "@/lib/auth/require";
+import { requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 
 export const runtime = "nodejs";
 
 export async function POST() {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("admin"); } catch (e) { return authErrorResponse(e); }
   const masterKey = randomBytes(32).toString("base64");
   const cookieSecret = randomBytes(32).toString("base64");
   const adminPassword = randomBytes(12).toString("base64url");

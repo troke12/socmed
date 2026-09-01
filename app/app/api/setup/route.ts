@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runMigrations } from "@db/migrate";
-import { requireSession } from "@/lib/auth/require";
+import { requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { sqlite } from "@db/client";
 
 export const runtime = "nodejs";
@@ -18,9 +19,7 @@ interface Check {
 }
 
 export async function GET() {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("admin"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
 
   // DB reachable

@@ -4,7 +4,8 @@ import { z } from "zod";
 import { db, sqlite } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { posts, postMedia, accounts, mediaAssets } from "@db/schema";
-import { requireSession } from "@/lib/auth/require";
+import { requireSession, requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 import { CreatePostBody } from "@/lib/validators/post";
 import { UpdatePostBody } from "@/lib/validators/post";
 import { enqueue, cancelPendingPublish } from "@/lib/queue/enqueue";
@@ -76,9 +77,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  try { await requireSession(); } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 401 });
-  }
+  try { await requireRole("editor"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
   const raw = (await readJson(req)) as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object") {

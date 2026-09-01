@@ -4,6 +4,10 @@ export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  role: text("role", { enum: ["admin", "editor", "viewer"] })
+    .notNull()
+    .default("viewer"),
+  disabled: integer("disabled").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -232,6 +236,7 @@ export const jobs = sqliteTable("jobs", {
 });
 
 export type User = typeof users.$inferSelect;
+export type Role = User["role"];
 export type NewUser = typeof users.$inferInsert;
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;

@@ -9,6 +9,8 @@ import "@platforms/bootstrap";
 import { encryptJson, pack } from "@platforms/crypto";
 import { mastodonCompleteOAuth } from "@platforms/mastodon/client";
 import { assertSafeOutboundUrl } from "@/lib/security/url";
+import { requireRole } from "@/lib/auth/require";
+import { authErrorResponse } from "@/lib/auth/http";
 
 export const runtime = "nodejs";
 
@@ -29,6 +31,9 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ platform: string }> },
 ) {
+  // This leg writes platform credentials, so it carries the same admin guard as
+  // the start leg. It had none at all before roles existed.
+  try { await requireRole("admin"); } catch (e) { return authErrorResponse(e); }
   const { platform } = await ctx.params;
   if (!VALID_PLATFORMS.has(platform as Platform)) {
     return NextResponse.json({ error: "invalid platform" }, { status: 400 });
