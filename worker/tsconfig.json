@@ -13,6 +13,7 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
+      "@/*": ["../app/*"],
       "@db/*": ["../app/lib/db/*"],
       "@platforms/*": ["../app/lib/platforms/*"],
       "@worker/*": ["./src/*"]
@@ -22,7 +23,8 @@
     "src/**/*.ts",
     "../app/lib/db/**/*.ts",
     "../app/lib/queue/**/*.ts",
-    "../app/lib/platforms/**/*.ts"
+    "../app/lib/platforms/**/*.ts",
+    "../app/lib/schedule/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
