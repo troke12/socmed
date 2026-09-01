@@ -16,6 +16,26 @@ export const users = sqliteTable("users", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const apiTokens = sqliteTable(
+  "api_tokens",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    prefix: text("prefix").notNull(),
+    // Capped below admin on purpose — see lib/auth/api-token.ts.
+    role: text("role", { enum: ["editor", "viewer"] }).notNull(),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    lastUsedAt: integer("last_used_at"),
+    expiresAt: integer("expires_at"),
+    revokedAt: integer("revoked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    hashIdx: index("api_tokens_hash_idx").on(t.tokenHash),
+  }),
+);
+
 export const accounts = sqliteTable(
   "accounts",
   {
@@ -272,6 +292,8 @@ export const jobs = sqliteTable("jobs", {
 
 export type User = typeof users.$inferSelect;
 export type Role = User["role"];
+export type ApiToken = typeof apiTokens.$inferSelect;
+export type ApiTokenRole = ApiToken["role"];
 export type NewUser = typeof users.$inferInsert;
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;

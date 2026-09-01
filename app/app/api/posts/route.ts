@@ -5,7 +5,8 @@ import { z } from "zod";
 import { db, sqlite } from "@db/client";
 import { runMigrations } from "@db/migrate";
 import { posts, postMedia, accounts, mediaAssets, users } from "@db/schema";
-import { requireSession, requireRole } from "@/lib/auth/require";
+import { requireRole } from "@/lib/auth/require";
+import { requireActor, actorUserId } from "@/lib/auth/authenticate";
 import { authErrorResponse } from "@/lib/auth/http";
 import { CreatePostBody } from "@/lib/validators/post";
 import { UpdatePostBody } from "@/lib/validators/post";
@@ -20,7 +21,7 @@ async function readJson(req: Request): Promise<unknown> {
 }
 
 export async function GET(req: Request) {
-  try { await requireSession(); } catch (e) {
+  try { await requireActor(req, "viewer"); } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 });
   }
   await runMigrations();
@@ -100,7 +101,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   let actor;
-  try { actor = await requireRole("editor"); } catch (e) { return authErrorResponse(e); }
+  try { actor = await requireActor(req, "editor"); } catch (e) { return authErrorResponse(e); }
   await runMigrations();
   const raw = (await readJson(req)) as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object") {
@@ -159,7 +160,7 @@ export async function POST(req: Request) {
               firstComment: firstComment ?? null,
               scheduledFor: status === "scheduled" || gated ? scheduledFor ?? null : null,
               reviewStatus,
-              authorId: actor.id,
+              authorId: actorUserId(actor),
               createdAt: now,
               updatedAt: now,
             })
@@ -307,7 +308,7 @@ export async function POST(req: Request) {
         reviewerId: null,
         reviewedAt: null,
         reviewNote: null,
-        authorId: post.authorId ?? actor.id,
+        authorId: post.authorId ?? actorUserId(actor),
         updatedAt: Math.floor(Date.now() / 1000),
       })
       .where(eq(posts.id, post.id))

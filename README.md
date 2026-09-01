@@ -173,3 +173,9 @@ tmux attach -t socmed-worker
 - No multi-user support — single admin account, single password gate ([#7](https://github.com/troke12/socmed/issues/7)).
 - Compose can only create new posts — no way to edit an existing draft/scheduled post, and no cross-posting to multiple accounts in one action ([#3](https://github.com/troke12/socmed/issues/3), [#4](https://github.com/troke12/socmed/issues/4)).
 - `next build` on Windows with Node 25+ hits a Next.js prerender bug (`/_global-error`). Use Node 22/24 (see `.nvmrc`) or the Docker images (Node 24, Linux) — the Docker path is the supported production deployment.
+
+## API
+
+socmed exposes a token-authenticated HTTP API for external automation. See
+[API.md](API.md) for endpoints, authentication and what a token is deliberately
+not allowed to do.
