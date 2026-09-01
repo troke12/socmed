@@ -47,7 +47,8 @@ export async function handleFirstComment(payload: FirstCommentPayload, jobId: nu
     fail(jobId, `account not found for post ${postId}`);
     return;
   }
-  if (!supportsFirstComment(account.platform)) {
+  const adapter = getAdapter(account.platform);
+  if (!supportsFirstComment(account.platform) || !adapter.postComment) {
     // Terminal: retrying cannot make the platform support it. Recorded on the
     // post so the operator sees why nothing appeared.
     sqlite
@@ -63,8 +64,9 @@ export async function handleFirstComment(payload: FirstCommentPayload, jobId: nu
 
   try {
     const creds = decryptAccountCreds(account);
-    const adapter = getAdapter(account.platform);
-    await adapter.postCommentReply(
+    // postComment, not postCommentReply: this targets the post itself, and on
+    // Instagram and YouTube that is a different endpoint entirely.
+    await adapter.postComment(
       post.platformPostId,
       post.firstComment,
       typeof creds.accessToken === "string" ? creds.accessToken : "",

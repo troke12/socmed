@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment , ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
 import {
   instagramBeginOAuth,
@@ -8,7 +8,7 @@ import {
   instagramRefresh,
   instagramVerifyWebhookSignature,
 } from "./client";
-import { unsupportedCommentReply } from "../capabilities";
+import { instagramReplyToComment, instagramCommentOnMedia } from "./client";
 
 export const instagramAdapter: PlatformAdapter = {
   platform: "instagram",
@@ -29,10 +29,15 @@ export const instagramAdapter: PlatformAdapter = {
   },
   async fetchMentions(_token: string, _since: number, _ctx: AdapterContext) { return { mentions: [] }; },
   async fetchComments(_id: string, _token: string, _since: number, _ctx: AdapterContext): Promise<Comment[]> { return []; },
-  async postCommentReply() {
-    // Returned a fake success before, which marked replies as sent that were
-    // never delivered. See #32.
-    return unsupportedCommentReply("instagram");
+  async postCommentReply(platformCommentId: string, text: string, accessToken: string): Promise<ReplyResult> {
+    const r = await instagramReplyToComment(platformCommentId, text, accessToken);
+    return { platformCommentId: r.id };
+  },
+  async postComment(platformPostId: string, text: string, accessToken: string): Promise<ReplyResult> {
+    // Different edge from a reply — this is the hashtags-in-the-first-comment
+    // case the feature exists for.
+    const r = await instagramCommentOnMedia(platformPostId, text, accessToken);
+    return { platformCommentId: r.id };
   },
   async likeTarget(_id: string, _token: string, _ctx: AdapterContext) { /* noop */ },
   verifyWebhookSignature: instagramVerifyWebhookSignature,

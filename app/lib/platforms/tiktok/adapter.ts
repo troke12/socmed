@@ -55,8 +55,10 @@ export const tiktokAdapter: PlatformAdapter = {
   async fetchMentions(_token: string, _since: number, _ctx: AdapterContext) { return { mentions: [] }; },
   async fetchComments(_id: string, _token: string, _since: number, _ctx: AdapterContext): Promise<Comment[]> { return []; },
   async postCommentReply() {
-    // Returned a fake success before, which marked replies as sent that were
-    // never delivered. See #32.
+    // TikTok exposes no endpoint for posting a comment: the Content Posting API
+    // covers videos and photos only, and the Research API is read-only. This
+    // returned a fake success before, marking replies as sent that were never
+    // delivered.
     return unsupportedCommentReply("tiktok");
   },
   async likeTarget(_id: string, _token: string, _ctx: AdapterContext) { /* noop */ },

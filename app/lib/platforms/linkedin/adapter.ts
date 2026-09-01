@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment , ReplyResult } from "../types";
 import type { AdapterContext } from "../types";
 import {
   linkedinBeginOAuth,
@@ -10,7 +10,7 @@ import {
   linkedinRefresh,
   linkedinVerifyWebhookSignature,
 } from "./client";
-import { unsupportedCommentReply } from "../capabilities";
+import { linkedinCreateComment } from "./client";
 
 export const linkedinAdapter: PlatformAdapter = {
   platform: "linkedin",
@@ -39,10 +39,18 @@ export const linkedinAdapter: PlatformAdapter = {
   },
   async fetchMentions() { return { mentions: [] }; },
   async fetchComments(): Promise<Comment[]> { return []; },
-  async postCommentReply() {
-    // Returned a fake success before, which marked replies as sent that were
-    // never delivered. See #32.
-    return unsupportedCommentReply("linkedin");
+  async postCommentReply(platformCommentId: string, text: string, accessToken: string, ctx: AdapterContext): Promise<ReplyResult> {
+    // The target in the URL is the thread the comment lives on, and
+    // parentComment is what makes this a reply rather than a new comment.
+    const threadUrn = ctx.post.platformPostId ?? platformCommentId;
+    const r = await linkedinCreateComment(threadUrn, text, accessToken, {
+      parentComment: platformCommentId,
+    });
+    return { platformCommentId: r.id };
+  },
+  async postComment(platformPostId: string, text: string, accessToken: string): Promise<ReplyResult> {
+    const r = await linkedinCreateComment(platformPostId, text, accessToken);
+    return { platformCommentId: r.id };
   },
   async likeTarget() { /* noop */ },
   verifyWebhookSignature: linkedinVerifyWebhookSignature,

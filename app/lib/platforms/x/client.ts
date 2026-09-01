@@ -276,6 +276,27 @@ export async function xPublishTweet(
   return { id: j.data.id, url: `https://x.com/i/status/${j.data.id}` };
 }
 
+// A reply is the same create-post call with a reply target; there is no separate
+// comment endpoint on X.
+// https://docs.x.com/x-api/posts/creation-of-a-post
+export async function xReplyToTweet(
+  inReplyToTweetId: string,
+  text: string,
+  accessToken: string,
+): Promise<{ id: string; url: string }> {
+  const res = await fetch(`${API_BASE}/2/tweets`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ text, reply: { in_reply_to_tweet_id: inReplyToTweetId } }),
+  });
+  if (!res.ok) throw new Error(`X reply: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as { data: { id: string } };
+  return { id: j.data.id, url: `https://x.com/i/status/${j.data.id}` };
+}
+
 export async function xDeleteTweet(tweetId: string, accessToken: string): Promise<void> {
   const res = await fetch(`${API_BASE}/2/tweets/${tweetId}`, {
     method: "DELETE",
