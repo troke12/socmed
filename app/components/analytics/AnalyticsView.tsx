@@ -23,6 +23,14 @@ interface Account {
   platform: string;
 }
 
+interface Audience {
+  points: Array<Record<string, number | string>>;
+  series: Array<{ accountId: number; label: string; platform: string }>;
+  growth: Array<{ accountId: number; label: string; first: number | null; last: number | null; change: number | null }>;
+  unsupported: Array<{ accountId: number; label: string; platform: string }>;
+  total: number;
+}
+
 interface Overview {
   window: { days: number; since: number; until: number };
   totals: {
@@ -57,6 +65,7 @@ export function AnalyticsView() {
   const [days, setDays] = useState(30);
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
   const [accountId, setAccountId] = useState<number | null>(null);
+  const [audience, setAudience] = useState<Audience | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const query = useCallback(() => {
@@ -94,6 +103,16 @@ export function AnalyticsView() {
     const i = setInterval(refresh, 60_000);
     return () => clearInterval(i);
   }, [refresh]);
+
+  // Separate from the overview: audience has its own table and is present even
+  // for a window in which nothing was published.
+  useEffect(() => {
+    void (async () => {
+      const res = await fetch(`/api/analytics/audience?${query()}`);
+      if (!res.ok) { setAudience(null); return; }
+      setAudience((await res.json()) as Audience);
+    })();
+  }, [query]);
 
   const controls = (
     <div className="flex flex-wrap items-end gap-2">
@@ -262,6 +281,70 @@ export function AnalyticsView() {
           </div>
         </div>
       </div>
+
+      {audience && (audience.points.length > 0 || audience.unsupported.length > 0) && (
+        <div className="rounded-md border border-border bg-card p-4">
+          <h3 className="mb-1 text-sm font-medium">Audience growth</h3>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Follower counts, captured once a day per account.
+          </p>
+
+          {audience.points.length > 0 ? (
+            <>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={audience.points}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    {/* Follower counts rarely start near zero, so a zero-based
+                        axis would flatten every real movement into a straight line. */}
+                    <YAxis tick={{ fontSize: 11 }} domain={["dataMin", "dataMax"]} />
+                    <Tooltip />
+                    <Legend />
+                    {audience.series.map((sr, i) => (
+                      <Line
+                        key={sr.accountId}
+                        type="monotone"
+                        dataKey={String(sr.accountId)}
+                        name={sr.label}
+                        stroke={COLORS[i % COLORS.length]}
+                        dot={false}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3 text-xs">
+                {audience.growth.map((g) => (
+                  <span key={g.accountId} className="text-muted-foreground">
+                    {g.label}:{" "}
+                    {g.change === null ? (
+                      "—"
+                    ) : (
+                      <span className={g.change > 0 ? "text-success" : g.change < 0 ? "text-destructive" : undefined}>
+                        {g.change > 0 ? "+" : ""}{fmt(g.change)}
+                      </span>
+                    )}{" "}
+                    {g.last !== null ? `(now ${fmt(g.last)})` : ""}
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No follower history in this range yet — the worker captures one point per account per day.
+            </p>
+          )}
+
+          {audience.unsupported.length > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Not tracked: {audience.unsupported.map((u) => `${u.label} (${u.platform})`).join(", ")} — these
+              platforms do not expose a follower count to this app.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="rounded-md border border-border bg-card p-4">
         <h3 className="mb-1 text-sm font-medium">By account</h3>

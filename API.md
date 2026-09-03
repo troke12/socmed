@@ -164,6 +164,19 @@ Returns `totals`, `timeseries`, `byPlatform`, `byAccount` and `top`.
 
 Same parameters, returns CSV with RFC 4180 quoting.
 
+### `GET /api/analytics/audience`
+
+Follower counts over time, one point per account per day. Same `days` / `from` /
+`to` / `accountId` parameters as the overview.
+
+Returns `points` (one entry per day, keyed by account id), `series`, `growth`
+(net change over the window, per account) and `unsupported` — connected accounts
+whose platform does not expose a follower count to this app.
+
+Tracked on X, YouTube, Mastodon, Bluesky and Facebook. Not tracked on Instagram,
+LinkedIn, TikTok, Threads, Pinterest, Reddit or Discord — see the notes in
+`lib/platforms/capabilities.ts`.
+
 ### `GET /api/analytics/best-time`
 
 Best-performing publish slots from the account's own history. Pass `tz` for the

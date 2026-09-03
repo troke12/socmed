@@ -50,6 +50,20 @@ export interface AnalyticsSnapshot {
   raw?: unknown;
 }
 
+/**
+ * Account-level audience counts at a point in time.
+ *
+ * Every field is optional because platforms report different subsets, and a
+ * missing number must stay distinguishable from a real zero — a chart that
+ * treats "not reported" as 0 shows a cliff that never happened.
+ */
+export interface AudienceCounts {
+  followers?: number;
+  following?: number;
+  posts?: number;
+  raw?: unknown;
+}
+
 export interface Mention {
   platformMentionId: string;
   authorHandle: string;
@@ -113,6 +127,13 @@ export interface PlatformAdapter {
     ctx: AdapterContext,
   ): Promise<{ mentions: Mention[]; nextCursor?: string }>;
   fetchComments(platformPostId: string, accessToken: string, since: number, ctx: AdapterContext): Promise<Comment[]>;
+  /**
+   * Current follower/following/post counts for the account itself.
+   *
+   * Optional: this is a different API call from fetchPostMetrics on every
+   * platform, and several do not expose it at all. Absent means unsupported.
+   */
+  fetchAudience?(accessToken: string, ctx: AdapterContext): Promise<AudienceCounts>;
 
   /** Replies to an existing comment or mention. Takes a *comment* id. */
   postCommentReply(platformCommentId: string, text: string, accessToken: string, ctx: AdapterContext): Promise<ReplyResult>;

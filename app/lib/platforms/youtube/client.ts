@@ -418,3 +418,23 @@ export function youtubeVerifyWebhookSignature(raw: string, headers: Record<strin
   return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-youtube-signature"] ?? headers["signature"]);
 }
 export function youtubeParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }
+
+// subscriberCount is rounded by YouTube policy for larger channels, so treat it
+// as a trend line rather than an exact figure.
+// https://developers.google.com/youtube/v3/docs/channels/list
+export async function youtubeFetchAudience(accessToken: string): Promise<{
+  followers?: number; posts?: number; raw?: unknown;
+}> {
+  const url = new URL(`${API}/channels`);
+  url.searchParams.set("part", "statistics");
+  url.searchParams.set("mine", "true");
+  const res = await fetch(url.toString(), { headers: { authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`YouTube audience: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as {
+    items?: { statistics?: { subscriberCount?: string; videoCount?: string; viewCount?: string } }[];
+  };
+  const st = j.items?.[0]?.statistics;
+  // The API returns these as strings.
+  const num = (v?: string) => (v === undefined ? undefined : Number(v));
+  return { followers: num(st?.subscriberCount), posts: num(st?.videoCount), raw: st };
+}

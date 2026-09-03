@@ -329,3 +329,21 @@ export function blueskyVerifyWebhookSignature(raw: string, headers: Record<strin
   return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-bluesky-signature"] ?? headers["signature"]);
 }
 export function blueskyParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }
+
+// profileViewDetailed spells these in camelCase, unlike most of atproto's
+// snake_case-looking neighbours.
+// https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/actor/defs.json
+export async function blueskyFetchAudience(
+  pdsUrl: string,
+  accessJwt: string,
+  actor: string,
+): Promise<{ followers?: number; following?: number; posts?: number; raw?: unknown }> {
+  const url = new URL(`${stripSlash(pdsUrl)}/xrpc/app.bsky.actor.getProfile`);
+  url.searchParams.set("actor", actor);
+  const res = await fetch(url.toString(), { headers: { authorization: `Bearer ${accessJwt}` } });
+  if (!res.ok) throw new Error(`Bluesky audience: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as {
+    followersCount?: number; followsCount?: number; postsCount?: number;
+  };
+  return { followers: j.followersCount, following: j.followsCount, posts: j.postsCount, raw: j };
+}
