@@ -11,6 +11,7 @@ import { handleFetchMetrics } from "./analytics";
 import { handlePostComment } from "./engagement";
 import { handleRefreshToken, type RefreshTokenPayload } from "./tokens";
 import { handleFirstComment, type FirstCommentPayload } from "./first-comment";
+import { handleFetchAudience, type FetchAudiencePayload } from "./audience";
 import { nextCronRun } from "@/lib/schedule/cron";
 import { applyUtm, utmDefaults, utmSourceFor } from "@/lib/links/utm";
 import { createShortLink } from "@/lib/links/shorten";
@@ -244,6 +245,9 @@ export async function handleJob(kind: string, payload: Record<string, unknown>, 
       return;
     case "first_comment":
       await handleFirstComment(payload as unknown as FirstCommentPayload, jobId);
+      return;
+    case "fetch_audience":
+      await handleFetchAudience(payload as unknown as FetchAudiencePayload, jobId);
       return;
     default:
       fail(jobId, `unknown job kind: ${kind}`);

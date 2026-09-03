@@ -1,4 +1,4 @@
-import type { PlatformAdapter, PublishInput, PublishResult, AnalyticsSnapshot, Comment, ReplyResult } from "../types";
+import type { PlatformAdapter, PublishInput, PublishResult, AnalyticsSnapshot, Comment, ReplyResult , AudienceCounts } from "../types";
 import type { AdapterContext } from "../types";
 import { RefreshUnsupportedError } from "../types";
 import {
@@ -13,6 +13,7 @@ import {
   facebookReplyToComment,
   facebookVerifyWebhookSignature,
 } from "./client";
+import { facebookFetchAudience } from "./client";
 
 export const facebookAdapter: PlatformAdapter = {
   platform: "facebook",
@@ -68,6 +69,12 @@ export const facebookAdapter: PlatformAdapter = {
     return { platformCommentId: r.id };
   },
   async likeTarget() { /* not exposed for pages here */ },
+  async fetchAudience(accessToken: string, ctx: AdapterContext): Promise<AudienceCounts> {
+    // The page id lives in instanceUrl, same as publishPost expects.
+    const pageId = (ctx.account.instanceUrl ?? "").trim();
+    if (!pageId) throw new Error("Facebook: page id missing (set instanceUrl column to page id)");
+    return facebookFetchAudience(pageId, accessToken);
+  },
   verifyWebhookSignature: facebookVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {
     const { challenge } = facebookParseWebhookEvent(raw, headers);

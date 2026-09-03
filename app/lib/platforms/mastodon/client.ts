@@ -215,3 +215,23 @@ export function mastodonVerifyWebhookSignature(raw: string, headers: Record<stri
   return secret.length > 0 && verifyHmacHeader(secret, raw, headers["x-mastodon-signature"] ?? headers["signature"]);
 }
 export function mastodonParseWebhookEvent(_raw: string, _headers: Record<string, string>): { challenge?: string } { return {}; }
+
+// https://docs.joinmastodon.org/entities/Account/
+export async function mastodonFetchAudience(
+  instanceUrl: string,
+  accessToken: string,
+): Promise<{ followers?: number; following?: number; posts?: number; raw?: unknown }> {
+  const res = await fetch(`${apiBase(instanceUrl)}/accounts/verify_credentials`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Mastodon audience: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as {
+    followers_count?: number; following_count?: number; statuses_count?: number;
+  };
+  return {
+    followers: j.followers_count,
+    following: j.following_count,
+    posts: j.statuses_count,
+    raw: j,
+  };
+}

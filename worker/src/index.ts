@@ -4,6 +4,7 @@ import { startCron, stopCron } from "./cron";
 import { startAnalyticsPoller, stopAnalyticsPoller } from "./pollers/analytics";
 import { startMentionsPoller, stopMentionsPoller } from "./pollers/mentions";
 import { startTokenPoller, stopTokenPoller } from "./pollers/tokens";
+import { startAudiencePoller, stopAudiencePoller } from "./pollers/audience";
 
 const HEALTH_INTERVAL_MS = 30_000;
 
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
   startAnalyticsPoller();
   startMentionsPoller();
   startTokenPoller();
+  startAudiencePoller();
 
   const health = setInterval(() => {
      
@@ -44,6 +46,7 @@ async function main(): Promise<void> {
     stopAnalyticsPoller();
     stopMentionsPoller();
     stopTokenPoller();
+    stopAudiencePoller();
     clearInterval(health);
     process.exit(0);
   }

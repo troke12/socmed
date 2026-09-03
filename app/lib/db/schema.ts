@@ -211,6 +211,25 @@ export const analyticsSnapshots = sqliteTable(
   }),
 );
 
+export const audienceSnapshots = sqliteTable(
+  "audience_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    accountId: integer("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    capturedAt: integer("captured_at").notNull(),
+    // Null means the platform does not report the number — distinct from zero.
+    followers: integer("followers"),
+    following: integer("following"),
+    posts: integer("posts"),
+    rawJson: text("raw_json"),
+  },
+  (t) => ({
+    accountTime: index("audience_account_time").on(t.accountId, t.capturedAt),
+    accountDay: uniqueIndex("audience_account_day_uq").on(t.accountId, t.capturedAt),
+  }),
+);
+
 export const mentions = sqliteTable(
   "mentions",
   {
@@ -305,6 +324,7 @@ export type ReviewStatus = Post["reviewStatus"];
 export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type ScheduleRule = typeof scheduleRules.$inferSelect;
 export type ShortLink = typeof shortLinks.$inferSelect;
+export type AudienceSnapshot = typeof audienceSnapshots.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type JobKind =
   | "publish_post"
@@ -312,5 +332,6 @@ export type JobKind =
   | "fetch_mentions"
   | "post_comment"
   | "first_comment"
+  | "fetch_audience"
   | "refresh_token"
   | "schedule_rule";

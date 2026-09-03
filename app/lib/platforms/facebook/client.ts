@@ -213,3 +213,19 @@ export function facebookParseWebhookEvent(raw: string, _headers: Record<string, 
     return { challenge: j.challenge };
   } catch { return {}; }
 }
+
+// followers_count is the modern field; fan_count is the legacy "likes" number
+// and on New Page Experience pages simply mirrors followers_count.
+// https://developers.facebook.com/docs/graph-api/reference/page/
+export async function facebookFetchAudience(
+  pageId: string,
+  accessToken: string,
+): Promise<{ followers?: number; raw?: unknown }> {
+  const url = new URL(`${GRAPH}/${pageId}`);
+  url.searchParams.set("fields", "followers_count,fan_count");
+  url.searchParams.set("access_token", accessToken);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`Facebook audience: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as { followers_count?: number; fan_count?: number };
+  return { followers: j.followers_count ?? j.fan_count, raw: j };
+}

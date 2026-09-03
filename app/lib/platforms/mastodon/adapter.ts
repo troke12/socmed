@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult , AudienceCounts } from "../types";
 import type { AdapterContext } from "../types";
 import {
   mastodonBeginOAuth,
@@ -8,6 +8,7 @@ import {
   mastodonFetchNotifications,
   mastodonParseWebhookEvent,
   mastodonPostStatus,
+  mastodonFetchAudience,
   mastodonUploadMedia,
   mastodonVerifyWebhookSignature,
 } from "./client";
@@ -86,6 +87,9 @@ export const mastodonAdapter: PlatformAdapter = {
     return { platformCommentId: r.id };
   },
   async likeTarget() { /* out of scope for v1 */ },
+  async fetchAudience(accessToken: string, ctx: AdapterContext): Promise<AudienceCounts> {
+    return mastodonFetchAudience(instanceUrl(ctx), accessToken);
+  },
   verifyWebhookSignature: mastodonVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {
     const { challenge } = mastodonParseWebhookEvent(raw, headers);

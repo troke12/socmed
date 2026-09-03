@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, WebhookEvent , ReplyResult } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, WebhookEvent , ReplyResult , AudienceCounts } from "../types";
 import type { AdapterContext } from "../types";
 import {
   xBeginOAuth,
@@ -12,6 +12,7 @@ import {
   xUploadMedia,
 } from "./client";
 import { xReplyToTweet } from "./client";
+import { xFetchAudience } from "./client";
 
 export const xAdapter: PlatformAdapter = {
   platform: "x",
@@ -65,6 +66,9 @@ export const xAdapter: PlatformAdapter = {
     return { platformCommentId: r.id };
   },
   async likeTarget() { /* noop */ },
+  async fetchAudience(accessToken: string): Promise<AudienceCounts> {
+    return xFetchAudience(accessToken);
+  },
   verifyWebhookSignature: xVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers): WebhookEvent[] => {
     const { challenge } = xParseWebhookEvent(raw, headers);

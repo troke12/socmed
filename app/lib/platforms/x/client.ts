@@ -346,3 +346,19 @@ export function xParseWebhookEvent(raw: string, _headers: Record<string, string>
     return {};
   }
 }
+
+// The metric is post_count, not tweet_count.
+// https://docs.x.com/x-api/users/get-my-user
+export async function xFetchAudience(accessToken: string): Promise<{
+  followers?: number; following?: number; posts?: number; raw?: unknown;
+}> {
+  const url = new URL(`${API_BASE}/2/users/me`);
+  url.searchParams.set("user.fields", "public_metrics");
+  const res = await fetch(url.toString(), { headers: { authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`X audience: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as {
+    data?: { public_metrics?: { followers_count?: number; following_count?: number; post_count?: number } };
+  };
+  const m = j.data?.public_metrics;
+  return { followers: m?.followers_count, following: m?.following_count, posts: m?.post_count, raw: j.data };
+}
