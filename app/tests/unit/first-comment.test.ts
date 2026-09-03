@@ -86,12 +86,13 @@ describe("comment-reply capability map", () => {
   });
 
   it("separates top-level comment support from reply support", () => {
-    // Discord can reply but cannot open a top-level comment: publishPost stores
-    // a bare message id and the channel id is also needed.
-    expect(SUPPORTS_COMMENT_REPLY.discord).toBe(true);
-    expect(supportsFirstComment("discord")).toBe(false);
-    for (const p of ["x", "instagram", "linkedin", "reddit", "mastodon", "facebook", "youtube"] as Platform[]) {
+    // The two maps exist because Instagram and YouTube use different endpoints
+    // for a reply and a new comment, not because the sets happen to differ.
+    for (const p of ["x", "instagram", "linkedin", "reddit", "mastodon", "facebook", "youtube", "discord"] as Platform[]) {
       expect(supportsFirstComment(p)).toBe(true);
+    }
+    for (const p of ["tiktok", "threads", "bluesky", "pinterest"] as Platform[]) {
+      expect(supportsFirstComment(p)).toBe(false);
     }
   });
 
@@ -152,11 +153,11 @@ describe("handleFirstComment", () => {
     expect(r.postedAt).toBeNull();
   });
 
-  it("closes out on a platform that can reply but not open a thread", async () => {
-    const postId = await seed({ platform: "discord", firstComment: "#tags", platformPostId: "msg_1" });
+  it("closes out on a platform with no comment endpoint at all", async () => {
+    const postId = await seed({ platform: "threads", firstComment: "#tags", platformPostId: "th_1" });
     const r = await run(postId);
     expect(r.status).toBe("done");
-    expect(r.error).toContain("not supported on discord");
+    expect(r.error).toContain("not supported on threads");
   });
 
   it("does nothing when the post has no first comment", async () => {
