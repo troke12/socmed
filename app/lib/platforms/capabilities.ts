@@ -33,11 +33,12 @@ export const SUPPORTS_COMMENT_REPLY: Record<Platform, boolean> = {
 /**
  * Which platforms can add a new top-level comment to one of our own posts —
  * what the first-comment feature needs. Deliberately a separate map: on
- * Instagram and YouTube this is a different endpoint from a reply, and on
- * Discord it needs a post id this app does not currently store.
+ * Instagram and YouTube this is a different endpoint from a reply, so the two
+ * cannot be collapsed into one capability.
  */
 export const SUPPORTS_TOP_LEVEL_COMMENT: Record<Platform, boolean> = {
   reddit: true,
+  discord: true,
   mastodon: true,
   facebook: true,
   youtube: true,
@@ -45,10 +46,6 @@ export const SUPPORTS_TOP_LEVEL_COMMENT: Record<Platform, boolean> = {
   instagram: true,
   linkedin: true,
 
-  // Blocked by the platform post id format, not by the API: publishPost stores a
-  // bare message id while the channel id is also required to post into the
-  // thread. Tracked separately.
-  discord: false,
   tiktok: false,
   threads: false,
   bluesky: false,
