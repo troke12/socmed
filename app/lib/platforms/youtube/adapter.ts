@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, ReplyResult } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, ReplyResult , AudienceCounts } from "../types";
 import type { AdapterContext } from "../types";
 import {
   youtubeBeginOAuth,
@@ -10,6 +10,7 @@ import {
   youtubeRefresh,
   youtubeReplyToComment,
   youtubeCommentOnVideo,
+  youtubeFetchAudience,
   youtubeUploadVideo,
   youtubeVerifyWebhookSignature,
 } from "./client";
@@ -63,6 +64,9 @@ export const youtubeAdapter: PlatformAdapter = {
     return { platformCommentId: r.id };
   },
   async likeTarget() { /* out of scope for v1 */ },
+  async fetchAudience(accessToken: string): Promise<AudienceCounts> {
+    return youtubeFetchAudience(accessToken);
+  },
   verifyWebhookSignature: youtubeVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {
     const { challenge } = youtubeParseWebhookEvent(raw, headers);

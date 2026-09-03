@@ -1,4 +1,4 @@
-import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult } from "../types";
+import type { PlatformAdapter, EncryptedCreds, DecryptedCreds, PublishInput, PublishResult, AnalyticsSnapshot, Comment, Mention, ReplyResult , AudienceCounts } from "../types";
 import type { AdapterContext } from "../types";
 import {
   blueskyCreatePost,
@@ -6,6 +6,7 @@ import {
   blueskyDeletePost,
   blueskyIsVideoPath,
   blueskyListNotifications,
+  blueskyFetchAudience,
   blueskyParseWebhookEvent,
   blueskyRefreshSession,
   blueskyUploadBlob,
@@ -102,6 +103,10 @@ export const blueskyAdapter: PlatformAdapter = {
   async fetchComments(): Promise<Comment[]> { return []; },
   async postCommentReply(): Promise<ReplyResult> { throw new Error("Bluesky reply: implement via createRecord with reply embed"); },
   async likeTarget() { /* out of scope for v1 */ },
+  async fetchAudience(_token: string, ctx: AdapterContext): Promise<AudienceCounts> {
+    const s = await session(ctx);
+    return blueskyFetchAudience(s.pdsUrl, s.accessJwt, s.did);
+  },
   verifyWebhookSignature: blueskyVerifyWebhookSignature,
   parseWebhookEvent: (raw, headers) => {
     const { challenge } = blueskyParseWebhookEvent(raw, headers);
